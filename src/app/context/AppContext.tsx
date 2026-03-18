@@ -3,8 +3,22 @@ import { User, Building, Machine, Schedule, MachineLog, ActivityLog } from '../t
 
 interface AppContextType {
   user: User | null;
-  login: (username: string, password: string) => boolean;
+  users: Record<
+    string,
+    {
+      password: string;
+      user: User;
+    }
+  >;
+  login: (usernameOrEmail: string, password: string) => boolean;
   logout: () => void;
+  resetPassword: (email: string, newPassword: string) => boolean;
+  addUser: (user: User, password: string) => boolean;
+  updateUser: (
+    username: string,
+    updates: Partial<User> & { password?: string }
+  ) => boolean;
+  removeUser: (username: string) => boolean;
   buildings: Building[];
   machines: Machine[];
   schedules: Schedule[];
@@ -16,6 +30,7 @@ interface AppContextType {
   removeMachine: (machineId: string) => void;
   updateMachine: (machineId: string, updates: Partial<Machine>) => void;
   addSchedule: (schedule: Omit<Schedule, 'id'>) => void;
+  updateSchedule: (scheduleId: string, updates: Partial<Schedule>) => void;
   getStatsForMachine: (machineId: string, startDate?: Date, endDate?: Date) => any;
   getStatsForBuilding: (buildingId: string, startDate?: Date, endDate?: Date) => any;
   logActivity: (action: string, target: string, details: string) => void;
@@ -23,15 +38,31 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Mock users
-const USERS: Record<string, { password: string; user: User }> = {
+// Mock users (stored by username)
+const DEFAULT_USERS: Record<
+  string,
+  {
+    password: string;
+    user: User;
+  }
+> = {
   employee: {
     password: 'em1',
-    user: { username: 'employee', role: 'employee', name: 'Nhân viên' },
+    user: {
+      username: 'employee',
+      role: 'employee',
+      name: 'Nhân viên',
+      email: 'employee@example.com',
+    },
   },
   admin: {
     password: 'ad12',
-    user: { username: 'admin', role: 'admin', name: 'Quản lý' },
+    user: {
+      username: 'admin',
+      role: 'admin',
+      name: 'Quản lý',
+      email: 'admin@example.com',
+    },
   },
 };
 
@@ -55,6 +86,8 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMin: 40,
     targetHumidityMax: 50,
     fanLevel: 3,
+    heaterLevel: 2,
+    humidifierLevel: 1,
     mode: 'automatic',
     currentFruit: 'Xoài',
   },
@@ -71,6 +104,8 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMin: 30,
     targetHumidityMax: 40,
     fanLevel: 2,
+    heaterLevel: 1,
+    humidifierLevel: 0,
     mode: 'manual',
   },
   {
@@ -86,6 +121,8 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMin: 40,
     targetHumidityMax: 50,
     fanLevel: 0,
+    heaterLevel: 0,
+    humidifierLevel: 0,
     mode: 'manual',
   },
   {
@@ -101,6 +138,8 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMin: 25,
     targetHumidityMax: 35,
     fanLevel: 4,
+    heaterLevel: 3,
+    humidifierLevel: 0,
     mode: 'automatic',
     currentFruit: 'Chuối',
   },
@@ -117,6 +156,8 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMin: 35,
     targetHumidityMax: 45,
     fanLevel: 3,
+    heaterLevel: 1,
+    humidifierLevel: 2,
     mode: 'manual',
   },
 ];
@@ -231,6 +272,7 @@ const generateMockLogs = (machines: Machine[]): MachineLog[] => {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<typeof DEFAULT_USERS>(DEFAULT_USERS);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -242,6 +284,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const savedBuildings = localStorage.getItem('buildings');
     const savedMachines = localStorage.getItem('machines');
     const savedSchedules = localStorage.getItem('schedules');
+    const savedUsers = localStorage.getItem('users');
     const savedUser = localStorage.getItem('user');
     const savedActivityLogs = localStorage.getItem('activityLogs');
 
@@ -249,7 +292,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMachines(savedMachines ? JSON.parse(savedMachines) : INITIAL_MACHINES);
     setActivityLogs(savedActivityLogs ? JSON.parse(savedActivityLogs) : []);
     setSchedules(savedSchedules ? JSON.parse(savedSchedules) : INITIAL_SCHEDULES);
-    
+    setUsers(savedUsers ? JSON.parse(savedUsers) : DEFAULT_USERS);
+
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     }
@@ -285,6 +329,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('activityLogs', JSON.stringify(activityLogs));
   }, [activityLogs]);
 
+  // Persist user store (passwords) so reset password stays across reloads
+  useEffect(() => {
+    localStorage.setItem('users', JSON.stringify(users));
+  }, [users]);
+
   const logActivity = (action: string, target: string, details: string) => {
     if (!user) return;
     
@@ -301,19 +350,139 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActivityLogs([newLog, ...activityLogs]);
   };
 
-  const login = (username: string, password: string): boolean => {
-    const userRecord = USERS[username];
+  const login = (usernameOrEmail: string, password: string): boolean => {
+    // Support login by username or email
+    const userRecord =
+      users[usernameOrEmail] ||
+      Object.values(users).find((entry) => entry.user.email === usernameOrEmail);
+
     if (userRecord && userRecord.password === password) {
       setUser(userRecord.user);
       localStorage.setItem('user', JSON.stringify(userRecord.user));
       return true;
     }
+
     return false;
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
+  };
+
+  const resetPassword = (email: string, newPassword: string): boolean => {
+    const entry = Object.entries(users).find(
+      ([, user]) => user.user.email === email
+    );
+
+    if (!entry) return false;
+
+    const [username, existing] = entry;
+    const updatedUsers = {
+      ...users,
+      [username]: {
+        ...existing,
+        password: newPassword,
+      },
+    };
+
+    setUsers(updatedUsers);
+    return true;
+  };
+
+  const addUser = (userToAdd: User, password: string): boolean => {
+    const username = userToAdd.username.trim();
+    if (!username) return false;
+
+    // Ensure unique username and email
+    if (users[username]) return false;
+    if (
+      Object.values(users).some(
+        (entry) => entry.user.email && entry.user.email === userToAdd.email
+      )
+    ) {
+      return false;
+    }
+
+    setUsers({
+      ...users,
+      [username]: {
+        password,
+        user: {
+          ...userToAdd,
+          username,
+        },
+      },
+    });
+
+    logActivity('Thêm tài khoản', username, `Tạo tài khoản ${userToAdd.name}`);
+    return true;
+  };
+
+  const updateUser = (
+    username: string,
+    updates: Partial<User> & { password?: string }
+  ): boolean => {
+    const existing = users[username];
+    if (!existing) return false;
+
+    // If email is changing, ensure uniqueness
+    if (
+      updates.email &&
+      Object.values(users).some(
+        (entry) => entry.user.email === updates.email && entry.user.username !== username
+      )
+    ) {
+      return false;
+    }
+
+    const updatedUser: User = {
+      ...existing.user,
+      ...updates,
+    };
+
+    const updatedUsers = {
+      ...users,
+      [username]: {
+        ...existing,
+        user: updatedUser,
+        password: updates.password ? updates.password : existing.password,
+      },
+    };
+
+    setUsers(updatedUsers);
+
+    if (user?.username === username) {
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    }
+
+    logActivity('Cập nhật tài khoản', username, `Cập nhật thông tin tài khoản ${updatedUser.name}`);
+    return true;
+  };
+
+  const removeUser = (username: string): boolean => {
+    const existing = users[username];
+    if (!existing) return false;
+    if (user?.username === username) return false;
+
+    // Prevent deleting the last admin
+    const isAdmin = existing.user.role === 'admin';
+    const adminCount = Object.values(users).filter(
+      (entry) => entry.user.role === 'admin'
+    ).length;
+
+    if (isAdmin && adminCount <= 1) {
+      return false;
+    }
+
+    const updatedUsers = { ...users };
+    delete updatedUsers[username];
+
+    setUsers(updatedUsers);
+
+    logActivity('Xóa tài khoản', username, `Xóa tài khoản ${existing.user.name}`);
+    return true;
   };
 
   const addBuilding = (building: Omit<Building, 'id' | 'machineCount'>) => {
@@ -410,6 +579,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logActivity('Thêm lịch trình', newSchedule.name, `Lịch sấy ${newSchedule.fruitType} - ${newSchedule.duration} phút`);
   };
 
+  const updateSchedule = (scheduleId: string, updates: Partial<Schedule>) => {
+    const schedule = schedules.find((s) => s.id === scheduleId);
+    setSchedules(
+      schedules.map((s) => (s.id === scheduleId ? { ...s, ...updates } : s))
+    );
+    
+    if (schedule) {
+      logActivity('Cập nhật lịch trình', schedule.name, `Cập nhật lịch trình ${schedule.name}`);
+    }
+  };
+
   const getStatsForMachine = (
     machineId: string,
     startDate?: Date,
@@ -466,8 +646,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         user,
+        users,
         login,
         logout,
+        resetPassword,
+        addUser,
+        updateUser,
+        removeUser,
         buildings,
         machines,
         schedules,
@@ -479,6 +664,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removeMachine,
         updateMachine,
         addSchedule,
+        updateSchedule,
         getStatsForMachine,
         getStatsForBuilding,
         logActivity,

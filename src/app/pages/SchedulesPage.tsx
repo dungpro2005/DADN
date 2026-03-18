@@ -5,8 +5,10 @@ import { toast } from 'sonner';
 import { Schedule, ScheduleStep } from '../types';
 
 export default function SchedulesPage() {
-  const { schedules, addSchedule } = useApp();
+  const { schedules, addSchedule, updateSchedule } = useApp();
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(
     null
   );
@@ -15,6 +17,13 @@ export default function SchedulesPage() {
     name: '',
     fruitType: '',
   });
+
+  const [editSchedule, setEditSchedule] = useState({
+    name: '',
+    fruitType: '',
+  });
+
+  const [editSteps, setEditSteps] = useState<Omit<ScheduleStep, 'id'>[]>([]);
 
   const [steps, setSteps] = useState<Omit<ScheduleStep, 'id'>[]>([
     {
@@ -102,8 +111,93 @@ export default function SchedulesPage() {
         doorOpen: false,
       },
     ]);
-    setShowAddDialog(false);
     toast.success('Đã thêm lịch trình mới');
+  };
+
+  const handleEditSchedule = () => {
+    if (!editingSchedule) return;
+
+    if (!editSchedule.name || !editSchedule.fruitType) {
+      toast.error('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+
+    if (editSteps.length === 0) {
+      toast.error('Cần ít nhất 1 bước');
+      return;
+    }
+
+    const totalDuration = editSteps.reduce((sum, step) => sum + step.duration, 0);
+
+    updateSchedule(editingSchedule.id, {
+      ...editSchedule,
+      duration: totalDuration,
+      steps: editSteps.map((step, index) => ({
+        ...step,
+        id: `step${index + 1}`,
+      })),
+    });
+
+    setShowEditDialog(false);
+    setEditingSchedule(null);
+    toast.success('Đã cập nhật lịch trình');
+  };
+
+  const handleOpenEditDialog = (schedule: Schedule) => {
+    setEditingSchedule(schedule);
+    setEditSchedule({
+      name: schedule.name,
+      fruitType: schedule.fruitType,
+    });
+    setEditSteps(schedule.steps.map(step => ({
+      order: step.order,
+      duration: step.duration,
+      tempMin: step.tempMin,
+      tempMax: step.tempMax,
+      humidityMin: step.humidityMin,
+      humidityMax: step.humidityMax,
+      fanLevel: step.fanLevel,
+      doorOpen: step.doorOpen,
+    })));
+    setShowEditDialog(true);
+  };
+
+  const handleAddEditStep = () => {
+    setEditSteps([
+      ...editSteps,
+      {
+        order: editSteps.length + 1,
+        duration: 120,
+        tempMin: 60,
+        tempMax: 70,
+        humidityMin: 30,
+        humidityMax: 40,
+        fanLevel: 3,
+        doorOpen: false,
+      },
+    ]);
+  };
+
+  const handleRemoveEditStep = (index: number) => {
+    const newSteps = editSteps.filter((_, i) => i !== index);
+    // Reorder
+    setEditSteps(
+      newSteps.map((step, i) => ({
+        ...step,
+        order: i + 1,
+      }))
+    );
+  };
+
+  const handleUpdateEditStep = (
+    index: number,
+    updates: Partial<ScheduleStep>
+  ) => {
+    setEditSteps(
+      editSteps.map((step, i) =>
+        i === index ? { ...step, ...updates } : step
+      )
+    );
   };
 
   return (
@@ -260,12 +354,23 @@ export default function SchedulesPage() {
               ))}
             </div>
 
-            <button
-              onClick={() => setSelectedSchedule(null)}
-              className="mt-6 w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
-            >
-              Đóng
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  handleOpenEditDialog(selectedSchedule);
+                  setSelectedSchedule(null);
+                }}
+                className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+              >
+                Chỉnh sửa
+              </button>
+              <button
+                onClick={() => setSelectedSchedule(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -468,6 +573,229 @@ export default function SchedulesPage() {
                 className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
               >
                 Thêm lịch trình
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Schedule Dialog */}
+      {showEditDialog && editingSchedule && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              Chỉnh sửa lịch trình
+            </h2>
+
+            <div className="space-y-4 mb-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tên lịch trình
+                  </label>
+                  <input
+                    type="text"
+                    value={editSchedule.name}
+                    onChange={(e) =>
+                      setEditSchedule({ ...editSchedule, name: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="Lịch sấy xoài"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Loại trái cây
+                  </label>
+                  <input
+                    type="text"
+                    value={editSchedule.fruitType}
+                    onChange={(e) =>
+                      setEditSchedule({
+                        ...editSchedule,
+                        fruitType: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="Xoài"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-gray-900">
+                    Các bước sấy ({editSteps.length} bước)
+                  </h3>
+                  <button
+                    onClick={handleAddEditStep}
+                    className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Thêm bước
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {editSteps.map((step, index) => (
+                    <div
+                      key={index}
+                      className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">
+                          Bước {step.order}
+                        </h4>
+                        {editSteps.length > 1 && (
+                          <button
+                            onClick={() => handleRemoveEditStep(index)}
+                            className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-sm"
+                          >
+                            Xóa
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Thời gian (phút)
+                          </label>
+                          <input
+                            type="number"
+                            value={step.duration}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                duration: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Nhiệt độ min (°C)
+                          </label>
+                          <input
+                            type="number"
+                            value={step.tempMin}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                tempMin: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Nhiệt độ max (°C)
+                          </label>
+                          <input
+                            type="number"
+                            value={step.tempMax}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                tempMax: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Độ ẩm min (%)
+                          </label>
+                          <input
+                            type="number"
+                            value={step.humidityMin}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                humidityMin: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Độ ẩm max (%)
+                          </label>
+                          <input
+                            type="number"
+                            value={step.humidityMax}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                humidityMax: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">
+                            Mức quạt (1-5)
+                          </label>
+                          <select
+                            value={step.fanLevel}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                fanLevel: Number(e.target.value) as 1 | 2 | 3 | 4 | 5,
+                              })
+                            }
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          >
+                            {[1, 2, 3, 4, 5].map((level) => (
+                              <option key={level} value={level}>
+                                Mức {level}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={step.doorOpen}
+                            onChange={(e) =>
+                              handleUpdateEditStep(index, {
+                                doorOpen: e.target.checked,
+                              })
+                            }
+                            className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                          />
+                          <span className="text-sm text-gray-600">Mở cửa</span>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditDialog(false);
+                  setEditingSchedule(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleEditSchedule}
+                className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
+              >
+                Cập nhật
               </button>
             </div>
           </div>

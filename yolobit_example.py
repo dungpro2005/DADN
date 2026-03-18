@@ -16,6 +16,8 @@ config = {
     'fanPin': 2,     # PWM pin for fan
     'doorPin': 3,    # Digital input for door sensor
     'powerPin': 4,   # Digital output for power control
+    'heaterPin': 5,  # PWM pin for heater control
+    'humidifierPin': 6,  # PWM pin for humidifier control
 }
 
 # Initialize devices with default config
@@ -23,9 +25,11 @@ dht20 = None
 fan_pwm = None
 door_pin = None
 power_pin = None
+heater_pwm = None
+humidifier_pwm = None
 
 def init_devices():
-    global dht20, fan_pwm, door_pin, power_pin
+    global dht20, fan_pwm, door_pin, power_pin, heater_pwm, humidifier_pwm
 
     # Initialize I2C for DT20 sensor
     try:
@@ -54,6 +58,20 @@ def init_devices():
             power_pin.value(0)
         except:
             power_pin = None
+
+    # Initialize heater PWM
+    if config['heaterPin'] >= 0:
+        try:
+            heater_pwm = PWM(Pin(config['heaterPin']), freq=1000, duty=0)
+        except:
+            heater_pwm = None
+
+    # Initialize humidifier PWM
+    if config['humidifierPin'] >= 0:
+        try:
+            humidifier_pwm = PWM(Pin(config['humidifierPin']), freq=1000, duty=0)
+        except:
+            humidifier_pwm = None
 
 # Initialize with default config
 init_devices()
@@ -101,6 +119,20 @@ def read_sensors():
     else:
         data['power_on'] = False
 
+    # Read heater level
+    if heater_pwm:
+        duty = heater_pwm.duty()
+        data['heater'] = min(5, max(0, round(duty / 204.6)))  # 0-5 levels
+    else:
+        data['heater'] = 0
+
+    # Read humidifier level
+    if humidifier_pwm:
+        duty = humidifier_pwm.duty()
+        data['humidifier'] = min(5, max(0, round(duty / 204.6)))  # 0-5 levels
+    else:
+        data['humidifier'] = 0
+
     return data
 
 def set_fan_level(level):
@@ -110,6 +142,14 @@ def set_fan_level(level):
 def set_power(state):
     if power_pin:
         power_pin.value(1 if state else 0)
+
+def set_heater_level(level):
+    if heater_pwm and 0 <= level <= 5:
+        heater_pwm.duty(fan_levels[level])  # Reuse fan_levels for simplicity
+
+def set_humidifier_level(level):
+    if humidifier_pwm and 0 <= level <= 5:
+        humidifier_pwm.duty(fan_levels[level])  # Reuse fan_levels for simplicity
 
 def configure_devices(new_config):
     global config
@@ -122,6 +162,10 @@ def process_command(cmd):
         set_fan_level(cmd.get('level', 0))
     elif cmd.get('command') == 'set_power':
         set_power(cmd.get('state', False))
+    elif cmd.get('command') == 'set_heater':
+        set_heater_level(cmd.get('level', 0))
+    elif cmd.get('command') == 'set_humidifier':
+        set_humidifier_level(cmd.get('level', 0))
     elif cmd.get('command') == 'configure_devices':
         return configure_devices(cmd.get('config', {}))
 

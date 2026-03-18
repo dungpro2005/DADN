@@ -16,6 +16,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Slider } from '../components/ui/slider';
 
 export default function MachinesPage() {
   const {
@@ -40,6 +41,8 @@ export default function MachinesPage() {
     fanPin: 2,    // Pin for fan PWM
     doorPin: 3,   // Pin for door sensor (optional)
     powerPin: 4,  // Pin for power control (optional)
+    heaterPin: 5, // Pin for heater PWM
+    humidifierPin: 6, // Pin for humidifier PWM
   });
 
   const [newMachine, setNewMachine] = useState({
@@ -65,6 +68,8 @@ export default function MachinesPage() {
         currentTemp: yolobit.sensorData.temp,
         currentHumidity: yolobit.sensorData.humidity,
         fanLevel: yolobit.sensorData.fan as 0 | 1 | 2 | 3 | 4 | 5,
+        heaterLevel: (yolobit.sensorData.heater as 0 | 1 | 2 | 3 | 4 | 5) || 0,
+        humidifierLevel: (yolobit.sensorData.humidifier as 0 | 1 | 2 | 3 | 4 | 5) || 0,
       });
     }
   }, [yolobit.sensorData, selectedMachine, updateMachine]);
@@ -82,6 +87,8 @@ export default function MachinesPage() {
       currentTemp: 25,
       currentHumidity: 60,
       fanLevel: 0,
+      heaterLevel: 0,
+      humidifierLevel: 0,
       mode: 'manual',
     });
 
@@ -125,12 +132,28 @@ export default function MachinesPage() {
     toast.success(`Đã đặt quạt mức ${level}`);
   };
 
+  const setHeaterLevel = (machineId: string, level: 0 | 1 | 2 | 3 | 4 | 5) => {
+    updateMachine(machineId, { heaterLevel: level });
+    if (yolobit.isConnected) {
+      yolobit.sendCommand({ command: 'set_heater', level });
+    }
+    toast.success(`Đã đặt sưởi ấm mức ${level}`);
+  };
+
+  const setHumidifierLevel = (machineId: string, level: 0 | 1 | 2 | 3 | 4 | 5) => {
+    updateMachine(machineId, { humidifierLevel: level });
+    if (yolobit.isConnected) {
+      yolobit.sendCommand({ command: 'set_humidifier', level });
+    }
+    toast.success(`Đã đặt làm ẩm mức ${level}`);
+  };
+
   const handleConnectYolobit = async (machineId: string) => {
     try {
       await yolobit.connect();
       toast.success('Đã kết nối với Yolobit');
     } catch (error) {
-      toast.error('Không thể kết nối với Yolobit: ' + error.message);
+      toast.error('Không thể kết nối với Yolobit: ' + (error as Error).message);
     }
   };
 
@@ -139,7 +162,7 @@ export default function MachinesPage() {
       await yolobit.disconnect();
       toast.success('Đã ngắt kết nối Yolobit');
     } catch (error) {
-      toast.error('Lỗi khi ngắt kết nối: ' + error.message);
+      toast.error('Lỗi khi ngắt kết nối: ' + (error as Error).message);
     }
   };
 
@@ -160,7 +183,7 @@ export default function MachinesPage() {
       toast.success('Đã gửi cấu hình thiết bị đến Yolobit');
       setShowConfigDialog(false);
     } catch (error) {
-      toast.error('Lỗi khi gửi cấu hình: ' + error.message);
+      toast.error('Lỗi khi gửi cấu hình: ' + (error as Error).message);
     }
   };
 
@@ -317,7 +340,7 @@ export default function MachinesPage() {
 
               {/* Machine Stats */}
               <div className="p-6 bg-white border-b border-gray-200">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                   <div className="flex items-center gap-3">
                     <Thermometer className="w-8 h-8 text-red-500" />
                     <div>
@@ -376,6 +399,32 @@ export default function MachinesPage() {
                         <p className="text-xs text-green-600">
                           {yolobit.sensorData.door_open ? 'Mở' : 'Đóng'} (HW)
                         </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Thermometer className="w-8 h-8 text-orange-500" />
+                    <div>
+                      <p className="text-sm text-gray-600">Sưởi ấm</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        Mức {machine.heaterLevel}
+                      </p>
+                      <p className="text-xs text-gray-500">(0-5)</p>
+                      {yolobit.isConnected && (
+                        <p className="text-xs text-green-600">Điều khiển</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Droplet className="w-8 h-8 text-cyan-500" />
+                    <div>
+                      <p className="text-sm text-gray-600">Làm ẩm</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        Mức {machine.humidifierLevel}
+                      </p>
+                      <p className="text-xs text-gray-500">(0-5)</p>
+                      {yolobit.isConnected && (
+                        <p className="text-xs text-green-600">Điều khiển</p>
                       )}
                     </div>
                   </div>
@@ -590,6 +639,75 @@ export default function MachinesPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Fan Speed Control */}
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-3">
+                          Tốc độ quạt
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <Fan className="w-5 h-5 text-purple-500" />
+                          <div className="flex-1">
+                            <Slider
+                              value={[machine.fanLevel]}
+                              onValueChange={(value) => setFanLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
+                              min={0}
+                              max={5}
+                              step={1}
+                              className="w-full"
+                            />
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 min-w-[3rem]">
+                            Mức {machine.fanLevel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Heater Control */}
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-3">
+                          Sưởi ấm
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <Thermometer className="w-5 h-5 text-red-500" />
+                          <div className="flex-1">
+                            <Slider
+                              value={[machine.heaterLevel]}
+                              onValueChange={(value) => setHeaterLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
+                              min={0}
+                              max={5}
+                              step={1}
+                              className="w-full"
+                            />
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 min-w-[3rem]">
+                            Mức {machine.heaterLevel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Humidifier Control */}
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-3">
+                          Làm ẩm
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <Droplet className="w-5 h-5 text-blue-500" />
+                          <div className="flex-1">
+                            <Slider
+                              value={[machine.humidifierLevel]}
+                              onValueChange={(value) => setHumidifierLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
+                              min={0}
+                              max={5}
+                              step={1}
+                              className="w-full"
+                            />
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 min-w-[3rem]">
+                            Mức {machine.humidifierLevel}
+                          </span>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
@@ -690,6 +808,48 @@ export default function MachinesPage() {
                     setDeviceConfig({
                       ...deviceConfig,
                       powerPin: Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value={-1}>Không sử dụng</option>
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29].map(pin => (
+                    <option key={pin} value={pin}>Pin {pin}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chân điều khiển sưởi ấm (PWM)
+                </label>
+                <select
+                  value={deviceConfig.heaterPin}
+                  onChange={(e) =>
+                    setDeviceConfig({
+                      ...deviceConfig,
+                      heaterPin: Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value={-1}>Không sử dụng</option>
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29].map(pin => (
+                    <option key={pin} value={pin}>Pin {pin}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chân điều khiển làm ẩm (PWM)
+                </label>
+                <select
+                  value={deviceConfig.humidifierPin}
+                  onChange={(e) =>
+                    setDeviceConfig({
+                      ...deviceConfig,
+                      humidifierPin: Number(e.target.value),
                     })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"

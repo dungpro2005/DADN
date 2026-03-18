@@ -4,6 +4,8 @@ interface SensorData {
   temp: number;
   humidity: number;
   fan: number;
+  heater?: number;
+  humidifier?: number;
   door_open?: boolean;
   power_on?: boolean;
 }
@@ -12,13 +14,18 @@ interface YolobitState {
   isConnected: boolean;
   sensorData: SensorData | null;
   port: SerialPort | null;
+  reader?: ReadableStreamDefaultReader | null;
 }
+
+let readerRef: ReadableStreamDefaultReader | null = null;
+let isReadingRef = false;
 
 export const useYolobit = () => {
   const [state, setState] = useState<YolobitState>({
     isConnected: false,
     sensorData: null,
     port: null,
+    reader: null,
   });
 
   const connect = useCallback(async () => {
@@ -30,23 +37,52 @@ export const useYolobit = () => {
       const port = await navigator.serial.requestPort();
       await port.open({ baudRate: 115200 });
 
-      setState(prev => ({ ...prev, port, isConnected: true }));
-
-      // Start reading data
       const reader = port.readable?.getReader();
+      readerRef = reader || null;
+      isReadingRef = true;
+
+      setState(prev => ({ ...prev, port, isConnected: true, reader }));
+
+      // Start reading data (don't await, let it run in background)
       if (reader) {
         readData(reader);
       }
     } catch (error) {
       console.error('Failed to connect to Yolobit:', error);
+      isReadingRef = false;
       throw error;
     }
   }, []);
 
   const disconnect = useCallback(async () => {
-    if (state.port) {
-      await state.port.close();
-      setState({ isConnected: false, sensorData: null, port: null });
+    try {
+      // Stop reading loop
+      isReadingRef = false;
+
+      // Release reader lock if exists
+      if (readerRef) {
+        try {
+          readerRef.cancel();
+          readerRef.releaseLock();
+        } catch (e) {
+          console.log('Reader already released:', e);
+        }
+        readerRef = null;
+      }
+
+      // Close port
+      if (state.port) {
+        try {
+          await state.port.close();
+        } catch (e) {
+          console.log('Port already closed:', e);
+        }
+      }
+
+      setState({ isConnected: false, sensorData: null, port: null, reader: null });
+    } catch (error) {
+      console.error('Error during disconnect:', error);
+      setState({ isConnected: false, sensorData: null, port: null, reader: null });
     }
   }, [state.port]);
 
@@ -63,9 +99,9 @@ export const useYolobit = () => {
 
   const readData = async (reader: ReadableStreamDefaultReader) => {
     try {
-      while (true) {
+      while (isReadingRef) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done || !isReadingRef) break;
 
         const data = new TextDecoder().decode(value);
         const lines = data.split('\n');
@@ -88,16 +124,34 @@ export const useYolobit = () => {
         }
       }
     } catch (error) {
-      console.error('Error reading data:', error);
+      if (isReadingRef) {
+        console.error('Error reading data:', error);
+      }
     } finally {
-      reader.releaseLock();
+      isReadingRef = false;
+      try {
+        reader.releaseLock();
+      } catch (e) {
+        console.log('Reader lock already released');
+      }
     }
   };
 
   useEffect(() => {
     return () => {
+      isReadingRef = false;
+      if (readerRef) {
+        try {
+          readerRef.cancel();
+          readerRef.releaseLock();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
       if (state.port) {
-        state.port.close();
+        state.port.close().catch(() => {
+          // Ignore close errors
+        });
       }
     };
   }, [state.port]);

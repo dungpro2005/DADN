@@ -7,6 +7,7 @@ import {
   BarChart3, 
   LogOut,
   User,
+  Users,
   Calendar,
   FileText
 } from 'lucide-react';
@@ -29,9 +30,13 @@ export default function Layout() {
     { path: '/statistics', icon: BarChart3, label: 'Thống kê' },
   ];
 
-  // Add Activity Logs for admin only
-  const adminNavItems = user?.role === 'admin' 
-    ? [...navItems, { path: '/activity-logs', icon: FileText, label: 'Nhật ký hoạt động' }]
+  // Add Admin-only pages
+  const adminNavItems = user?.role === 'admin'
+    ? [
+        ...navItems,
+        { path: '/users', icon: Users, label: 'Nhân sự' },
+        { path: '/activity-logs', icon: FileText, label: 'Nhật ký hoạt động' },
+      ]
     : navItems;
 
   return (

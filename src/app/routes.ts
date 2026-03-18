@@ -7,6 +7,7 @@ import MachinesPage from './pages/MachinesPage';
 import SchedulesPage from './pages/SchedulesPage';
 import StatisticsPage from './pages/StatisticsPage';
 import ActivityLogsPage from './pages/ActivityLogsPage';
+import UsersPage from './pages/UsersPage';
 
 export const router = createBrowserRouter([
   {
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
       {
         path: 'statistics',
         Component: StatisticsPage,
+      },
+      {
+        path: 'users',
+        Component: UsersPage,
       },
       {
         path: 'activity-logs',

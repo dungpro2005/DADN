@@ -3,21 +3,55 @@ import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { LogIn, User, Lock } from 'lucide-react';
 import { toast } from 'sonner';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login } = useApp();
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
+  const { login, resetPassword: doResetPassword } = useApp();
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (login(username, password)) {
       toast.success('Đăng nhập thành công!');
       navigate('/dashboard');
     } else {
       toast.error('Tên đăng nhập hoặc mật khẩu không đúng!');
+    }
+  };
+
+  const handleResetPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!resetEmail) {
+      toast.error('Vui lòng nhập email.');
+      return;
+    }
+
+    if (!resetPassword) {
+      toast.error('Vui lòng nhập mật khẩu mới.');
+      return;
+    }
+
+    if (resetPassword !== resetPasswordConfirm) {
+      toast.error('Mật khẩu mới và xác nhận không khớp.');
+      return;
+    }
+
+    const success = doResetPassword(resetEmail.trim(), resetPassword);
+    if (success) {
+      toast.success('Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.');
+      setResetEmail('');
+      setResetPassword('');
+      setResetPasswordConfirm('');
+    } else {
+      toast.error('Không tìm thấy tài khoản với email này.');
     }
   };
 
@@ -40,7 +74,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tên đăng nhập
+                Tên đăng nhập hoặc Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -51,7 +85,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  placeholder="employee hoặc admin"
+                  placeholder="employee, admin hoặc email"
                   required
                 />
               </div>
@@ -83,23 +117,88 @@ export default function LoginPage() {
               <LogIn className="w-5 h-5" />
               Đăng nhập
             </button>
+
+            <div className="flex justify-center text-sm text-gray-600">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-orange-600 hover:underline"
+                  >
+                    Quên mật khẩu?
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Đặt lại mật khẩu</DialogTitle>
+                    <DialogDescription>
+                      Nhập email để đặt lại mật khẩu của bạn.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <form onSubmit={handleResetPassword} className="space-y-4 mt-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Email
+                      </label>
+                      <Input
+                        type="email"
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        placeholder="example@domain.com"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Mật khẩu mới
+                      </label>
+                      <Input
+                        type="password"
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                        placeholder="••••••"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Xác nhận mật khẩu
+                      </label>
+                      <Input
+                        type="password"
+                        value={resetPasswordConfirm}
+                        onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                        placeholder="••••••"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <DialogClose asChild>
+                        <button
+                          type="button"
+                          className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200"
+                        >
+                          Hủy
+                        </button>
+                      </DialogClose>
+                      <button
+                        type="submit"
+                        className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+                      >
+                        Đặt lại
+                      </button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <div className="text-sm text-gray-600 space-y-2">
-              <p className="font-semibold">Thông tin đăng nhập mẫu:</p>
-              <div className="grid grid-cols-2 gap-4 mt-2">
-                <div className="bg-blue-50 p-3 rounded-lg">
-                  <p className="font-medium text-blue-900">Nhân viên</p>
-                  <p className="text-xs text-blue-700">employee / em1</p>
-                </div>
-                <div className="bg-purple-50 p-3 rounded-lg">
-                  <p className="font-medium text-purple-900">Quản lý</p>
-                  <p className="text-xs text-purple-700">admin / ad12</p>
-                </div>
-              </div>
-            </div>
-          </div>
+          
         </div>
       </div>
     </div>

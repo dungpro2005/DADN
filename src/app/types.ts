@@ -6,6 +6,7 @@ export interface User {
   username: string;
   role: UserRole;
   name: string;
+  email?: string; // Optional to support email-based login and password reset
 }
 
 export interface Machine {
@@ -21,6 +22,8 @@ export interface Machine {
   targetHumidityMin: number;
   targetHumidityMax: number;
   fanLevel: 0 | 1 | 2 | 3 | 4 | 5; // 0 = off, 1-5 = speed levels
+  heaterLevel: 0 | 1 | 2 | 3 | 4 | 5; // 0 = off, 1-5 = heating levels
+  humidifierLevel: 0 | 1 | 2 | 3 | 4 | 5; // 0 = off, 1-5 = humidifying levels
   mode: 'manual' | 'automatic';
   currentFruit?: string;
   scheduleId?: string;
