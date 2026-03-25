@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { useYolobit } from '../hooks/useYolobit';
+import { useYolobitServer } from '../hooks/useYolobitServer';
 import {
   Settings,
   Plus,
@@ -29,7 +29,7 @@ export default function MachinesPage() {
     updateMachine,
   } = useApp();
 
-  const yolobit = useYolobit();
+  const yolobit = useYolobitServer();
 
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [showAddDialog, setShowAddDialog] = useState(false);

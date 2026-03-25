@@ -101,3 +101,34 @@ Hệ thống Fruit Dryer Management System hỗ trợ cấu hình động các t
 2. **Cảm biến không hoạt động**: Kiểm tra chân I2C và kết nối vật lý
 3. **Quạt không quay**: Kiểm tra chân PWM và nguồn điện
 4. **Cấu hình không áp dụng**: Đảm bảo Yolobit đã nhận lệnh configure_devices
+
+## Chạy backend
+1. Di chuyển vào trong thư mục chứa backend
+```bash
+cd ~/DADN/backend
+npm run dev
+```
+3. Tạo enviroment 
+```bash
+touch .env
+cat <<EOF > .env
+# --- Adafruit IO Configuration ---
+ADAFRUIT_IO_USERNAME= <usename>
+ADAFRUIT_IO_KEY= <key_adafruit>
+OWNER_USERNAME= <usename>
+
+# --- Backend Configuration ---
+PORT=8000
+TELEMETRY_URL=http://localhost:8000/api/telemetry
+
+# --- Gateway Configuration ---
+GATEWAY_PORT=5000
+GATEWAY_URL=http://localhost:5000/api/control
+EOF
+```
+2. Khởi động gateway
+```bash
+source .venv/bin/activate
+pip install -r requrement.txt
+python adafruit_gateway.py
+```

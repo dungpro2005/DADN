@@ -1,5 +1,39 @@
 import { useState, useEffect, useCallback } from 'react';
 
+// Web Serial API type declarations
+interface SerialPortRequestOptions {
+  filters?: SerialPortFilter[];
+}
+
+interface SerialPortFilter {
+  usbVendorId?: number;
+  usbProductId?: number;
+}
+
+interface SerialPort {
+  open(options: SerialPortOpenOptions): Promise<void>;
+  close(): Promise<void>;
+  readonly readable: ReadableStream<Uint8Array> | null;
+  readonly writable: WritableStream<Uint8Array> | null;
+}
+
+interface SerialPortOpenOptions {
+  baudRate: number;
+  dataBits?: number;
+  stopBits?: number;
+  parity?: 'none' | 'even' | 'odd';
+  flowControl?: 'none' | 'hardware';
+}
+
+declare global {
+  interface Navigator {
+    serial: {
+      requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>;
+      getPorts(): Promise<SerialPort[]>;
+    };
+  }
+}
+
 interface SensorData {
   temp: number;
   humidity: number;
@@ -14,7 +48,7 @@ interface YolobitState {
   isConnected: boolean;
   sensorData: SensorData | null;
   port: SerialPort | null;
-  reader?: ReadableStreamDefaultReader | null;
+  reader?: ReadableStreamDefaultReader<Uint8Array> | null;
 }
 
 let readerRef: ReadableStreamDefaultReader | null = null;
