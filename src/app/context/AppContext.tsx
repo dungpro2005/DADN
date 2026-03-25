@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, Building, Machine, Schedule, MachineLog, ActivityLog } from '../types';
 
 interface AppContextType {
@@ -279,32 +279,182 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [logs, setLogs] = useState<MachineLog[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
-  // Load data from localStorage on mount
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Fetch data from backend API
+  const fetchDataFromAPI = async () => {
+    try {
+      const [machinesRes, logsRes] = await Promise.all([
+        fetch('http://localhost:8000/api/machines'),
+        fetch('http://localhost:8000/api/logs')
+      ]);
+
+      // Fetch machines and convert to frontend format
+      if (machinesRes.ok) {
+        const machinesData = await machinesRes.json();
+        // Map backend machine format to frontend format
+        const convertedMachines: Machine[] = machinesData.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          buildingId: m.buildingId,
+          isOn: m.lastUpdate ? true : false,
+          isDoorOpen: m.isDoorOpen || false,
+          currentTemp: m.currentTemp || 0,
+          targetTempMin: 60,
+          targetTempMax: 70,
+          currentHumidity: m.currentHumidity || 0,
+          targetHumidityMin: 40,
+          targetHumidityMax: 50,
+          fanLevel: (m.fanLevel || 0) as 0 | 1 | 2 | 3 | 4 | 5,
+          heaterLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
+          humidifierLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
+          mode: 'automatic' as const,
+        }));
+        setMachines(convertedMachines);
+        
+        // Build buildings list from machines
+        const buildingMap = new Map<string, Building>();
+        convertedMachines.forEach(machine => {
+          if (!buildingMap.has(machine.buildingId)) {
+            buildingMap.set(machine.buildingId, {
+              id: machine.buildingId,
+              name: `Tòa ${machine.buildingId}`,
+              location: `Khu vực ${machine.buildingId}`,
+              machineCount: 0,
+            });
+          }
+          const building = buildingMap.get(machine.buildingId)!;
+          building.machineCount++;
+        });
+        setBuildings(Array.from(buildingMap.values()));
+      }
+
+      // Fetch logs
+      if (logsRes.ok) {
+        const logsData = await logsRes.json();
+        // Map backend log format to frontend format
+        const convertedLogs: MachineLog[] = logsData.map((log: any) => ({
+          id: `log-${Math.random()}`,
+          machineId: log.zone || '1',
+          buildingId: log.zone || '1',
+          timestamp: new Date(log.time),
+          temp: log.temp || 0,
+          humidity: log.humi || 0,
+          fanLevel: 3,
+          isOn: true,
+          isDoorOpen: false,
+          mode: 'automatic' as const,
+        }));
+        setLogs(convertedLogs);
+      }
+    } catch (error) {
+      console.error('Error fetching data from API:', error);
+      // Fallback to localStorage or initial data
+      const savedBuildings = localStorage.getItem('buildings');
+      const savedMachines = localStorage.getItem('machines');
+      const savedSchedules = localStorage.getItem('schedules');
+      const savedActivityLogs = localStorage.getItem('activityLogs');
+
+      setBuildings(savedBuildings ? JSON.parse(savedBuildings) : INITIAL_BUILDINGS);
+      setMachines(savedMachines ? JSON.parse(savedMachines) : INITIAL_MACHINES);
+      setActivityLogs(savedActivityLogs ? JSON.parse(savedActivityLogs) : []);
+      setSchedules(savedSchedules ? JSON.parse(savedSchedules) : INITIAL_SCHEDULES);
+    }
+  };
+
+  // Connect to WebSocket for real-time updates
+  const connectWebSocket = () => {
+    try {
+      const ws = new WebSocket('ws://localhost:3001');
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('✓ Connected to backend WebSocket');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'telemetry_update' && message.data) {
+            const telemetry = message.data;
+            const machineId = telemetry.zone_id ? telemetry.zone_id.toString() : '1';
+            
+            // Update machine data with latest telemetry
+            setMachines(prevMachines =>
+              prevMachines.map(machine =>
+                machine.id === machineId
+                  ? { 
+                      ...machine, 
+                      currentTemp: telemetry.temperature || machine.currentTemp,
+                      currentHumidity: telemetry.humidity || machine.currentHumidity,
+                      isDoorOpen: telemetry.isDoorOpen || false,
+                      fanLevel: (telemetry.fan_level || machine.fanLevel) as 0 | 1 | 2 | 3 | 4 | 5,
+                    }
+                  : machine
+              )
+            );
+            
+            // Add to logs
+            const newLog: MachineLog = {
+              id: telemetry.id || `log-${Date.now()}`,
+              machineId: machineId,
+              buildingId: telemetry.zone_id ? telemetry.zone_id.toString() : '1',
+              timestamp: new Date(telemetry.timestamp || new Date()),
+              temp: telemetry.temperature || 0,
+              humidity: telemetry.humidity || 0,
+              fanLevel: telemetry.fan_level || 0,
+              isOn: true,
+              isDoorOpen: telemetry.isDoorOpen || false,
+              mode: 'automatic'
+            };
+            setLogs(prevLogs => [newLog, ...prevLogs.slice(0, 999)]);
+          } else if (message.type === 'initial_data' && message.data) {
+            // Handle initial data on connection
+            console.log('Received initial telemetry data from backend');
+          }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('✗ WebSocket disconnected, reconnecting in 5 seconds...');
+        setTimeout(connectWebSocket, 5000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    } catch (error) {
+      console.error('Error connecting to WebSocket:', error);
+    }
+  };
+
+  // Load data from API and localStorage on mount
   useEffect(() => {
-    const savedBuildings = localStorage.getItem('buildings');
-    const savedMachines = localStorage.getItem('machines');
-    const savedSchedules = localStorage.getItem('schedules');
     const savedUsers = localStorage.getItem('users');
     const savedUser = localStorage.getItem('user');
-    const savedActivityLogs = localStorage.getItem('activityLogs');
+    const savedSchedules = localStorage.getItem('schedules');
 
-    setBuildings(savedBuildings ? JSON.parse(savedBuildings) : INITIAL_BUILDINGS);
-    setMachines(savedMachines ? JSON.parse(savedMachines) : INITIAL_MACHINES);
-    setActivityLogs(savedActivityLogs ? JSON.parse(savedActivityLogs) : []);
-    setSchedules(savedSchedules ? JSON.parse(savedSchedules) : INITIAL_SCHEDULES);
     setUsers(savedUsers ? JSON.parse(savedUsers) : DEFAULT_USERS);
+    setSchedules(savedSchedules ? JSON.parse(savedSchedules) : INITIAL_SCHEDULES);
 
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     }
-  }, []);
 
-  // Generate logs when machines change
-  useEffect(() => {
-    if (machines.length > 0) {
-      setLogs(generateMockLogs(machines));
-    }
-  }, [machines]);
+    // Fetch data from backend
+    fetchDataFromAPI();
+
+    // Connect WebSocket
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
 
   // Save data to localStorage
   useEffect(() => {
@@ -550,12 +700,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     
     if (machine) {
       let details = '';
+      let deviceCommand: { device: string; value: any; zone_id: string } | null = null;
+      
       if (updates.isOn !== undefined) {
         details = updates.isOn ? 'Bật máy' : 'Tắt máy';
       } else if (updates.isDoorOpen !== undefined) {
         details = updates.isDoorOpen ? 'Mở cửa' : 'Đóng cửa';
+        deviceCommand = {
+          device: 'door',
+          value: updates.isDoorOpen ? 1 : 0,
+          zone_id: machineId
+        };
       } else if (updates.fanLevel !== undefined) {
         details = `Đặt quạt mức ${updates.fanLevel}`;
+        deviceCommand = {
+          device: 'fan',
+          value: updates.fanLevel,
+          zone_id: machineId
+        };
       } else if (updates.mode !== undefined) {
         details = `Chuyển sang chế độ ${updates.mode === 'automatic' ? 'tự động' : 'thủ công'}`;
       } else if (updates.targetTempMin !== undefined || updates.targetTempMax !== undefined) {
@@ -566,7 +728,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         details = 'Cập nhật cấu hình';
       }
       
+      // Send control command to backend if applicable
+      if (deviceCommand) {
+        sendControlCommand(deviceCommand);
+      }
+      
       logActivity('Điều khiển máy sấy', machine.name, details);
+    }
+  };
+
+  // Send control command to the backend gateway
+  const sendControlCommand = async (command: { device: string; value: any; zone_id: string }) => {
+    try {
+      const response = await fetch('http://localhost:8000/api/control', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(command)
+      });
+      
+      if (response.ok) {
+        console.log(`✓ Control command sent: ${command.device}=${command.value}`);
+      } else {
+        console.error(`✗ Control command failed: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error sending control command:', error);
     }
   };
 
