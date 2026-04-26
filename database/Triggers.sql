@@ -175,9 +175,9 @@ BEGIN
         THROW 50012, N'MachineId không tồn tại.', 1;
     END;
 
-    IF @FanLevel IS NOT NULL AND (@FanLevel < 0 OR @FanLevel > 5)
+    IF @FanLevel IS NOT NULL AND (@FanLevel < 0 OR @FanLevel > 3)
     BEGIN
-        THROW 50013, N'FanLevel phải nằm trong khoảng 0 đến 5.', 1;
+        THROW 50013, N'FanLevel phải nằm trong khoảng 0 đến 3.', 1;
     END;
 
     IF @HeaterLevel IS NOT NULL AND (@HeaterLevel < 0 OR @HeaterLevel > 5)

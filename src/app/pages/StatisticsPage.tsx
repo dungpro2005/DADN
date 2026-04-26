@@ -72,24 +72,24 @@ export default function StatisticsPage() {
             Math.round(
               (dayLogs.reduce((sum, log) => sum + log.temp, 0) /
                 dayLogs.length) *
-                10
+              10
             ) / 10,
           humidity:
             Math.round(
               (dayLogs.reduce((sum, log) => sum + log.humidity, 0) /
                 dayLogs.length) *
-                10
+              10
             ) / 10,
           fanLevel:
             Math.round(
               (dayLogs.reduce((sum, log) => sum + log.fanLevel, 0) /
                 dayLogs.length) *
-                10
+              10
             ) / 10,
           uptime:
             Math.round(
               (dayLogs.filter((log) => log.isOn).length / dayLogs.length) *
-                1000
+              1000
             ) / 10,
         }))
         .sort((a, b) => {
@@ -142,24 +142,24 @@ export default function StatisticsPage() {
       Math.round(
         (relevantLogs.reduce((sum, log) => sum + log.temp, 0) /
           relevantLogs.length) *
-          10
+        10
       ) / 10;
     const avgHumidity =
       Math.round(
         (relevantLogs.reduce((sum, log) => sum + log.humidity, 0) /
           relevantLogs.length) *
-          10
+        10
       ) / 10;
     const avgFanLevel =
       Math.round(
         (relevantLogs.reduce((sum, log) => sum + log.fanLevel, 0) /
           relevantLogs.length) *
-          10
+        10
       ) / 10;
     const totalUptime =
       Math.round(
         (relevantLogs.filter((log) => log.isOn).length / relevantLogs.length) *
-          1000
+        1000
       ) / 10;
 
     return {
@@ -192,25 +192,25 @@ export default function StatisticsPage() {
           Math.round(
             (machineLogs.reduce((sum, log) => sum + log.temp, 0) /
               machineLogs.length) *
-              10
+            10
           ) / 10;
         const avgHumidity =
           Math.round(
             (machineLogs.reduce((sum, log) => sum + log.humidity, 0) /
               machineLogs.length) *
-              10
+            10
           ) / 10;
         const avgFanLevel =
           Math.round(
             (machineLogs.reduce((sum, log) => sum + log.fanLevel, 0) /
               machineLogs.length) *
-              10
+            10
           ) / 10;
         const uptime =
           Math.round(
             (machineLogs.filter((log) => log.isOn).length /
               machineLogs.length) *
-              1000
+            1000
           ) / 10;
 
         return {
@@ -430,7 +430,7 @@ export default function StatisticsPage() {
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
-                <YAxis domain={[0, 5]} />
+                <YAxis domain={[0, 3]} />
                 <Tooltip />
                 <Legend />
                 <Line

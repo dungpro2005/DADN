@@ -10,7 +10,7 @@ GO
 -- EXEC dbo.usp_GetMachineOverview @BuildingId = N'BLD-001', @OnlyRunning = 1;
 -- EXEC dbo.usp_GetMachineReadings @MachineId = N'MCH-001', @Top = 5;
 -- EXEC dbo.usp_GetActiveAlerts;
--- EXEC dbo.usp_UpdateMachineControl @MachineId = N'MCH-002', @IsOn = 1, @FanLevel = 4, @Mode = N'automatic';
+-- EXEC dbo.usp_UpdateMachineControl @MachineId = N'MCH-002', @IsOn = 1, @FanLevel = 2, @Mode = N'automatic';
 -- EXEC dbo.usp_ResolveAlert @AlertId = N'<alert-id-can-resolve>', @UserId = N'USR-ADMIN-001';
 -- EXEC dbo.usp_ReportDeviceFailure @DeviceId = N'DEV-TH-001', @FailureType = N'SENSOR_TEST_ERROR', @Description = N'Test procedure báo lỗi thiết bị';
 -- EXEC dbo.usp_ResolveDeviceFailure @FailureId = N'<failure-id-can-resolve>', @UserId = N'USR-ADMIN-001';

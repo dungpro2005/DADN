@@ -46,6 +46,10 @@ CREATE TABLE Schedules (
     fruitTypeId NVARCHAR(50) NOT NULL,
     description NVARCHAR(255) NULL,
     durationMinutes INT NOT NULL CHECK (durationMinutes > 0),
+    targetTempMin DECIMAL(5,2) NOT NULL DEFAULT 40.00,
+    targetTempMax DECIMAL(5,2) NOT NULL DEFAULT 60.00,
+    targetHumidityMin DECIMAL(5,2) NOT NULL DEFAULT 30.00,
+    targetHumidityMax DECIMAL(5,2) NOT NULL DEFAULT 50.00,
     createdAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     CONSTRAINT fk_schedule_fruitType FOREIGN KEY (fruitTypeId) REFERENCES FruitTypes(fruitTypeId)
 );
@@ -61,7 +65,7 @@ CREATE TABLE ScheduleSteps (
     tempMax DECIMAL(5,2) NOT NULL,
     humidityMin DECIMAL(5,2) NOT NULL,
     humidityMax DECIMAL(5,2) NOT NULL,
-    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 5),
+    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 3),
     heaterLevel INT NOT NULL CHECK (heaterLevel BETWEEN 0 AND 5),
     doorOpen BIT NOT NULL DEFAULT 0,
     CONSTRAINT uq_scheduleSteps_order UNIQUE (scheduleId, stepOrder),
@@ -92,7 +96,7 @@ CREATE TABLE Machines (
     targetHumidityMin DECIMAL(5,2) NOT NULL,
     targetHumidityMax DECIMAL(5,2) NOT NULL,
 
-    fanLevel INT NOT NULL DEFAULT 0 CHECK (fanLevel BETWEEN 0 AND 5),
+    fanLevel INT NOT NULL DEFAULT 0 CHECK (fanLevel BETWEEN 0 AND 3),
     heaterLevel INT NOT NULL DEFAULT 0 CHECK (heaterLevel BETWEEN 0 AND 5),
     humidifierLevel INT NOT NULL DEFAULT 0 CHECK (humidifierLevel BETWEEN 0 AND 5),
 
@@ -117,7 +121,7 @@ CREATE TABLE MachineLogs (
     loggedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     temp DECIMAL(5,2) NOT NULL,
     humidity DECIMAL(5,2) NOT NULL,
-    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 5),
+    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 3),
     isOn BIT NOT NULL,
     isDoorOpen BIT NOT NULL,
     mode NVARCHAR(20) NOT NULL CHECK (mode IN (N'manual', N'automatic')),

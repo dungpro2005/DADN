@@ -17,7 +17,7 @@ AIO_USERNAME = os.getenv('ADAFRUIT_IO_USERNAME')
 OWNER_USERNAME = os.getenv('OWNER_USERNAME')
 AIO_BROKER = "io.adafruit.com"
 PORT = 1883
-
+TELEMETRY_URL = os.getenv('TELEMETRY_URL')
 # --- State ---
 ZONES = {
     "toa-a": {
@@ -103,11 +103,14 @@ app = Flask(__name__)
 def control_device():
     data = request.json
     device, value = data.get('device'), data.get('value')
-    if device in ["fan", "door"]:
+    # Thêm các loại trái cây vào danh sách cho phép
+    allowed_devices = ["fan", "door", "xoai", "chuoi", "thanh-long", "dua", "nhan"]
+    
+    if device in allowed_devices:
         client.publish(f"{AIO_USERNAME}/f/{device}", value)
         print(f"[Control] Sent command {device} -> {value}")
         return jsonify({"status": "success"}), 200
-    return jsonify({"status": "error"}), 400
+    return jsonify({"status": "error", "message": f"Device {device} not supported"}), 400
 
 def run_flask():
     app.run(host='0.0.0.0', port=5000)
