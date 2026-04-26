@@ -67,7 +67,7 @@ export default function MachinesPage() {
       updateMachine(selectedMachine, {
         currentTemp: yolobit.sensorData.temp,
         currentHumidity: yolobit.sensorData.humidity,
-        fanLevel: yolobit.sensorData.fan as 0 | 1 | 2 | 3 | 4 | 5,
+        fanLevel: yolobit.sensorData.fan as 0 | 1 | 2 | 3,
         heaterLevel: (yolobit.sensorData.heater as 0 | 1 | 2 | 3 | 4 | 5) || 0,
         humidifierLevel: (yolobit.sensorData.humidifier as 0 | 1 | 2 | 3 | 4 | 5) || 0,
       });
@@ -124,7 +124,7 @@ export default function MachinesPage() {
     toast.success(currentState ? 'Đã đóng cửa' : 'Đã mở cửa');
   };
 
-  const setFanLevel = (machineId: string, level: 0 | 1 | 2 | 3 | 4 | 5) => {
+  const setFanLevel = (machineId: string, level: 0 | 1 | 2 | 3) => {
     updateMachine(machineId, { fanLevel: level });
     if (yolobit.isConnected) {
       yolobit.sendCommand({ command: 'set_fan', level });
@@ -273,14 +273,12 @@ export default function MachinesPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div
-                      className={`p-3 rounded-lg ${
-                        machine.isOn ? 'bg-green-100' : 'bg-gray-200'
-                      }`}
+                      className={`p-3 rounded-lg ${machine.isOn ? 'bg-green-100' : 'bg-gray-200'
+                        }`}
                     >
                       <Settings
-                        className={`w-6 h-6 ${
-                          machine.isOn ? 'text-green-600' : 'text-gray-500'
-                        }`}
+                        className={`w-6 h-6 ${machine.isOn ? 'text-green-600' : 'text-gray-500'
+                          }`}
                       />
                     </div>
                     <div>
@@ -299,11 +297,10 @@ export default function MachinesPage() {
                           ? handleDisconnectYolobit()
                           : handleConnectYolobit(machine.id)
                       }
-                      className={`p-2 rounded-lg transition-colors ${
-                        yolobit.isConnected
+                      className={`p-2 rounded-lg transition-colors ${yolobit.isConnected
                           ? 'bg-green-100 text-green-600 hover:bg-green-200'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
+                        }`}
                       title={
                         yolobit.isConnected
                           ? 'Ngắt kết nối Yolobit'
@@ -378,7 +375,7 @@ export default function MachinesPage() {
                       <p className="text-xl font-bold text-gray-900">
                         Mức {machine.fanLevel}
                       </p>
-                      <p className="text-xs text-gray-500">(0-5)</p>
+                      <p className="text-xs text-gray-500">(0-3)</p>
                       {yolobit.isConnected && (
                         <p className="text-xs text-green-600">Điều khiển</p>
                       )}
@@ -455,22 +452,20 @@ export default function MachinesPage() {
                     <div className="flex gap-3">
                       <button
                         onClick={() => setMode(machine.id, 'manual')}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${
-                          machine.mode === 'manual'
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${machine.mode === 'manual'
                             ? 'border-orange-500 bg-orange-50 text-orange-700'
                             : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                        }`}
+                          }`}
                       >
                         <Settings className="w-5 h-5 mx-auto mb-1" />
                         <p className="font-semibold">Thủ công</p>
                       </button>
                       <button
                         onClick={() => setMode(machine.id, 'automatic')}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${
-                          machine.mode === 'automatic'
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${machine.mode === 'automatic'
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
                             : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                        }`}
+                          }`}
                       >
                         <Calendar className="w-5 h-5 mx-auto mb-1" />
                         <p className="font-semibold">Tự động</p>
@@ -508,11 +503,10 @@ export default function MachinesPage() {
                       <div className="grid grid-cols-2 gap-4 mb-6">
                         <button
                           onClick={() => togglePower(machine.id, machine.isOn)}
-                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors ${
-                            machine.isOn
+                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors ${machine.isOn
                               ? 'bg-red-500 hover:bg-red-600 text-white'
                               : 'bg-green-500 hover:bg-green-600 text-white'
-                          }`}
+                            }`}
                         >
                           <Power className="w-5 h-5" />
                           {machine.isOn ? 'Tắt máy' : 'Bật máy'}
@@ -522,13 +516,12 @@ export default function MachinesPage() {
                             toggleDoor(machine.id, machine.isDoorOpen)
                           }
                           disabled={!machine.isOn}
-                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors ${
-                            !machine.isOn
+                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors ${!machine.isOn
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                               : machine.isDoorOpen
-                              ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                              : 'bg-blue-500 hover:bg-blue-600 text-white'
-                          }`}
+                                ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                                : 'bg-blue-500 hover:bg-blue-600 text-white'
+                            }`}
                         >
                           {machine.isDoorOpen ? (
                             <DoorClosed className="w-5 h-5" />
@@ -539,35 +532,34 @@ export default function MachinesPage() {
                         </button>
                       </div>
 
-                  {/* Hardware Power Control */}
-                  {deviceConfig.powerPin >= 0 && yolobit.isConnected && (
-                    <div className="mb-6">
-                      <label className="block text-sm font-medium text-gray-700 mb-3">
-                        Điều khiển nguồn hardware
-                      </label>
-                      <button
-                        onClick={() => yolobit.sendCommand({
-                          command: 'set_power',
-                          state: !yolobit.sensorData?.power_on
-                        })}
-                        className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors w-full ${
-                          yolobit.sensorData?.power_on
-                            ? 'bg-red-500 hover:bg-red-600 text-white'
-                            : 'bg-green-500 hover:bg-green-600 text-white'
-                        }`}
-                      >
-                        <Power className="w-5 h-5" />
-                        {yolobit.sensorData?.power_on ? 'Tắt nguồn HW' : 'Bật nguồn HW'}
-                      </button>
-                    </div>
-                  )}
+                      {/* Hardware Power Control */}
+                      {deviceConfig.powerPin >= 0 && yolobit.isConnected && (
+                        <div className="mb-6">
+                          <label className="block text-sm font-medium text-gray-700 mb-3">
+                            Điều khiển nguồn hardware
+                          </label>
+                          <button
+                            onClick={() => yolobit.sendCommand({
+                              command: 'set_power',
+                              state: !yolobit.sensorData?.power_on
+                            })}
+                            className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-semibold transition-colors w-full ${yolobit.sensorData?.power_on
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-green-500 hover:bg-green-600 text-white'
+                              }`}
+                          >
+                            <Power className="w-5 h-5" />
+                            {yolobit.sensorData?.power_on ? 'Tắt nguồn HW' : 'Bật nguồn HW'}
+                          </button>
+                        </div>
+                      )}
 
-                  {/* Temperature Range */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Ngưỡng nhiệt độ (°C)
-                    </label>
-                    <div className="grid grid-cols-2 gap-4">
+                      {/* Temperature Range */}
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Ngưỡng nhiệt độ (°C)
+                        </label>
+                        <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-xs text-gray-600">Tối thiểu</label>
                             <input
@@ -650,9 +642,9 @@ export default function MachinesPage() {
                           <div className="flex-1">
                             <Slider
                               value={[machine.fanLevel]}
-                              onValueChange={(value) => setFanLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
+                              onValueChange={(value) => setFanLevel(machine.id, value[0] as 0 | 1 | 2 | 3)}
                               min={0}
-                              max={5}
+                              max={3}
                               step={1}
                               className="w-full"
                             />
