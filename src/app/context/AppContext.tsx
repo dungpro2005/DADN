@@ -12,7 +12,9 @@ interface AppContextType {
   >;
   login: (usernameOrEmail: string, password: string) => boolean;
   logout: () => void;
-  resetPassword: (email: string, newPassword: string) => boolean;
+  requestOTP: (email: string) => Promise<{ success: boolean; error?: string; debug_otp?: string }>;
+  verifyOTP: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (email: string, newPassword: string) => Promise<boolean>;
   addUser: (user: User, password: string) => boolean;
   updateUser: (
     username: string,
@@ -37,6 +39,7 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const API_BASE = 'http://localhost:8000/api';
 
 // Mock users (stored by username)
 const DEFAULT_USERS: Record<
@@ -52,7 +55,10 @@ const DEFAULT_USERS: Record<
       username: 'employee',
       role: 'employee',
       name: 'Nhân viên',
+      firstName: 'Nhân',
+      lastName: 'viên',
       email: 'employee@example.com',
+      phoneNumber: '0123456789',
     },
   },
   admin: {
@@ -61,7 +67,10 @@ const DEFAULT_USERS: Record<
       username: 'admin',
       role: 'admin',
       name: 'Quản lý',
+      firstName: 'Quản',
+      lastName: 'lý',
       email: 'admin@example.com',
+      phoneNumber: '0987654321',
     },
   },
 };
@@ -137,7 +146,7 @@ const INITIAL_MACHINES: Machine[] = [
     currentHumidity: 30,
     targetHumidityMin: 25,
     targetHumidityMax: 35,
-    fanLevel: 4,
+    fanLevel: 3,
     heaterLevel: 3,
     humidifierLevel: 0,
     mode: 'automatic',
@@ -168,6 +177,10 @@ const INITIAL_SCHEDULES: Schedule[] = [
     name: 'Lịch sấy xoài',
     fruitType: 'Xoài',
     duration: 480, // 8 hours
+    targetTempMin: 50,
+    targetTempMax: 60,
+    targetHumidityMin: 40,
+    targetHumidityMax: 50,
     steps: [
       {
         id: 'step1',
@@ -199,7 +212,7 @@ const INITIAL_SCHEDULES: Schedule[] = [
         tempMax: 75,
         humidityMin: 30,
         humidityMax: 40,
-        fanLevel: 4,
+        fanLevel: 3,
         doorOpen: false,
       },
     ],
@@ -209,6 +222,10 @@ const INITIAL_SCHEDULES: Schedule[] = [
     name: 'Lịch sấy chuối',
     fruitType: 'Chuối',
     duration: 360,
+    targetTempMin: 55,
+    targetTempMax: 65,
+    targetHumidityMin: 45,
+    targetHumidityMax: 55,
     steps: [
       {
         id: 'step1',
@@ -229,7 +246,7 @@ const INITIAL_SCHEDULES: Schedule[] = [
         tempMax: 75,
         humidityMin: 25,
         humidityMax: 35,
-        fanLevel: 4,
+        fanLevel: 3,
         doorOpen: false,
       },
     ],
@@ -284,9 +301,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Fetch data from backend API
   const fetchDataFromAPI = async () => {
     try {
-      const [machinesRes, logsRes] = await Promise.all([
-        fetch('http://localhost:8000/api/machines'),
-        fetch('http://localhost:8000/api/logs')
+      const [machinesRes, logsRes, usersRes, schedulesRes] = await Promise.all([
+        fetch(`${API_BASE}/machines`),
+        fetch(`${API_BASE}/logs`),
+        fetch(`${API_BASE}/users`),
+        fetch(`${API_BASE}/schedules`)
       ]);
 
       // Fetch machines and convert to frontend format
@@ -305,13 +324,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           currentHumidity: m.currentHumidity || 0,
           targetHumidityMin: 40,
           targetHumidityMax: 50,
-          fanLevel: (m.fanLevel || 0) as 0 | 1 | 2 | 3 | 4 | 5,
+          fanLevel: (m.fanLevel || 0) as 0 | 1 | 2 | 3,
           heaterLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
           humidifierLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
           mode: 'automatic' as const,
         }));
         setMachines(convertedMachines);
-        
+
         // Build buildings list from machines
         const buildingMap = new Map<string, Building>();
         convertedMachines.forEach(machine => {
@@ -347,6 +366,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         setLogs(convertedLogs);
       }
+
+      // Fetch users
+      if (usersRes.ok) {
+        const backendUsers = await usersRes.json();
+        setUsers(prevUsers => {
+          const updatedUsers = { ...prevUsers };
+          backendUsers.forEach((u: User) => {
+            // Only set placeholder if user doesn't exist or already has placeholder
+            // This prevents overwriting 'ad12' or 'em1' if they were added via DEFAULT_USERS
+            if (!updatedUsers[u.username] || updatedUsers[u.username].password === '***') {
+              updatedUsers[u.username] = { user: u, password: '***' };
+            } else {
+              // Update user info but keep existing password
+              updatedUsers[u.username].user = u;
+            }
+          });
+          return updatedUsers;
+        });
+      }
+
+      // Fetch schedules
+      if (schedulesRes.ok) {
+        const backendSchedules = await schedulesRes.json();
+        setSchedules(backendSchedules);
+      }
     } catch (error) {
       console.error('Error fetching data from API:', error);
       // Fallback to localStorage or initial data
@@ -378,22 +422,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (message.type === 'telemetry_update' && message.data) {
             const telemetry = message.data;
             const machineId = telemetry.zone_id ? telemetry.zone_id.toString() : '1';
-            
+
             // Update machine data with latest telemetry
             setMachines(prevMachines =>
               prevMachines.map(machine =>
                 machine.id === machineId
-                  ? { 
-                      ...machine, 
-                      currentTemp: telemetry.temperature || machine.currentTemp,
-                      currentHumidity: telemetry.humidity || machine.currentHumidity,
-                      isDoorOpen: telemetry.isDoorOpen || false,
-                      fanLevel: (telemetry.fan_level || machine.fanLevel) as 0 | 1 | 2 | 3 | 4 | 5,
-                    }
+                  ? {
+                    ...machine,
+                    currentTemp: telemetry.temperature || machine.currentTemp,
+                    currentHumidity: telemetry.humidity || machine.currentHumidity,
+                    isDoorOpen: telemetry.isDoorOpen || false,
+                    fanLevel: (telemetry.fan_level || machine.fanLevel) as 0 | 1 | 2 | 3,
+                  }
                   : machine
               )
             );
-            
+
             // Add to logs
             const newLog: MachineLog = {
               id: telemetry.id || `log-${Date.now()}`,
@@ -436,7 +480,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const savedUser = localStorage.getItem('user');
     const savedSchedules = localStorage.getItem('schedules');
 
-    setUsers(savedUsers ? JSON.parse(savedUsers) : DEFAULT_USERS);
+    // Merge saved users with DEFAULT_USERS to ensure defaults are always available
+    const parsedSavedUsers = savedUsers ? JSON.parse(savedUsers) : {};
+    setUsers({ ...DEFAULT_USERS, ...parsedSavedUsers });
     setSchedules(savedSchedules ? JSON.parse(savedSchedules) : INITIAL_SCHEDULES);
 
     if (savedUser) {
@@ -486,7 +532,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const logActivity = (action: string, target: string, details: string) => {
     if (!user) return;
-    
+
     const newLog: ActivityLog = {
       id: `activity-${Date.now()}`,
       timestamp: new Date(),
@@ -496,7 +542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       target,
       details,
     };
-    
+
     setActivityLogs([newLog, ...activityLogs]);
   };
 
@@ -520,24 +566,75 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('user');
   };
 
-  const resetPassword = (email: string, newPassword: string): boolean => {
+  const requestOTP = async (email: string): Promise<{ success: boolean; error?: string; debug_otp?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE}/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        return { success: true };
+      } else {
+        return { success: false, error: data.error, debug_otp: data.debug_otp };
+      }
+    } catch (error) {
+      return { success: false, error: 'Không thể kết nối tới máy chủ' };
+    }
+  };
+
+  const verifyOTP = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE}/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        return { success: true };
+      } else {
+        return { success: false, error: data.error };
+      }
+    } catch (error) {
+      return { success: false, error: 'Không thể kết nối tới máy chủ' };
+    }
+  };
+
+  const resetPassword = async (email: string, newPassword: string): Promise<boolean> => {
     const entry = Object.entries(users).find(
-      ([, user]) => user.user.email === email
+      ([, u]) => u.user.email === email
     );
 
     if (!entry) return false;
 
-    const [username, existing] = entry;
-    const updatedUsers = {
-      ...users,
-      [username]: {
-        ...existing,
-        password: newPassword,
-      },
-    };
+    try {
+      // Sync with backend
+      const response = await fetch(`${API_BASE}/users/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, newPassword }),
+      });
 
-    setUsers(updatedUsers);
-    return true;
+      if (response.ok) {
+        const [username, existing] = entry;
+        const updatedUsers = {
+          ...users,
+          [username]: {
+            ...existing,
+            password: newPassword,
+          },
+        };
+
+        setUsers(updatedUsers);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Lỗi resetPassword:', error);
+      return false;
+    }
   };
 
   const addUser = (userToAdd: User, password: string): boolean => {
@@ -554,6 +651,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    // First sync with backend
+    fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...userToAdd, username })
+    }).catch(err => console.error('Lỗi đồng bộ addUser:', err));
+
     setUsers({
       ...users,
       [username]: {
@@ -561,6 +665,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         user: {
           ...userToAdd,
           username,
+          name: `${userToAdd.firstName} ${userToAdd.lastName}`.trim(),
         },
       },
     });
@@ -586,9 +691,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    // Sync with backend
+    fetch(`${API_BASE}/users/${username}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('Lỗi đồng bộ updateUser:', err));
+
     const updatedUser: User = {
       ...existing.user,
       ...updates,
+      name: updates.firstName && updates.lastName
+        ? `${updates.firstName} ${updates.lastName}`.trim()
+        : existing.user.name,
     };
 
     const updatedUsers = {
@@ -626,6 +741,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    // Sync with backend
+    fetch(`${API_BASE}/users/${username}`, {
+      method: 'DELETE'
+    }).catch(err => console.error('Lỗi đồng bộ removeUser:', err));
+
     const updatedUsers = { ...users };
     delete updatedUsers[username];
 
@@ -660,7 +780,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: `m${Date.now()}`,
     };
     setMachines([...machines, newMachine]);
-    
+
     // Update building machine count
     setBuildings(
       buildings.map((b) =>
@@ -669,7 +789,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : b
       )
     );
-    
+
     const building = buildings.find((b) => b.id === machine.buildingId);
     logActivity('Thêm máy sấy', newMachine.name, `Thêm máy mới vào ${building?.name || 'tòa nhà'}`);
   };
@@ -678,7 +798,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const machine = machines.find((m) => m.id === machineId);
     if (machine) {
       setMachines(machines.filter((m) => m.id !== machineId));
-      
+
       // Update building machine count
       setBuildings(
         buildings.map((b) =>
@@ -687,7 +807,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : b
         )
       );
-      
+
       logActivity('Xóa máy sấy', machine.name, `Đã xóa máy sấy ${machine.name}`);
     }
   };
@@ -697,11 +817,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMachines(
       machines.map((m) => (m.id === machineId ? { ...m, ...updates } : m))
     );
-    
+
     if (machine) {
       let details = '';
       let deviceCommand: { device: string; value: any; zone_id: string } | null = null;
-      
+
       if (updates.isOn !== undefined) {
         details = updates.isOn ? 'Bật máy' : 'Tắt máy';
       } else if (updates.isDoorOpen !== undefined) {
@@ -718,8 +838,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           value: updates.fanLevel,
           zone_id: machineId
         };
-      } else if (updates.mode !== undefined) {
-        details = `Chuyển sang chế độ ${updates.mode === 'automatic' ? 'tự động' : 'thủ công'}`;
+      } else if (updates.mode !== undefined || updates.scheduleId !== undefined) {
+        const newMode = updates.mode || machine.mode;
+        const newScheduleId = updates.scheduleId || machine.scheduleId;
+
+        if (newMode === 'automatic' && newScheduleId) {
+          const schedule = schedules.find(s => s.id === newScheduleId);
+          if (schedule) {
+            // Automatically apply schedule thresholds
+            updates.targetTempMin = schedule.targetTempMin;
+            updates.targetTempMax = schedule.targetTempMax;
+            updates.targetHumidityMin = schedule.targetHumidityMin;
+            updates.targetHumidityMax = schedule.targetHumidityMax;
+            updates.currentFruit = schedule.fruitType;
+            details = `Chuyển sang tự động - Lịch: ${schedule.name}`;
+
+            // Gửi tín hiệu loại trái cây sang Adafruit (loại tái đó = 1)
+            const fruitMapping: Record<string, string> = {
+              'Xoài': 'xoai',
+              'Chuối': 'chuoi',
+              'Thanh long': 'thanh-long',
+              'Dứa': 'dua',
+              'Nhãn': 'nhan'
+            };
+            const feedName = fruitMapping[schedule.fruitType];
+            if (feedName) {
+              deviceCommand = {
+                device: feedName,
+                value: 1,
+                zone_id: machineId
+              };
+            }
+          } else {
+            details = `Chuyển sang chế độ ${newMode === 'automatic' ? 'tự động' : 'thủ công'}`;
+          }
+        } else {
+          details = `Chuyển sang chế độ ${newMode === 'manual' ? 'thủ công' : 'tự động'}`;
+        }
       } else if (updates.targetTempMin !== undefined || updates.targetTempMax !== undefined) {
         details = `Cập nhật ngưỡng nhiệt độ`;
       } else if (updates.targetHumidityMin !== undefined || updates.targetHumidityMax !== undefined) {
@@ -727,12 +882,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         details = 'Cập nhật cấu hình';
       }
-      
+
       // Send control command to backend if applicable
       if (deviceCommand) {
         sendControlCommand(deviceCommand);
       }
-      
+
       logActivity('Điều khiển máy sấy', machine.name, details);
     }
   };
@@ -747,7 +902,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify(command)
       });
-      
+
       if (response.ok) {
         console.log(`✓ Control command sent: ${command.device}=${command.value}`);
       } else {
@@ -761,18 +916,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addSchedule = (schedule: Omit<Schedule, 'id'>) => {
     const newSchedule: Schedule = {
       ...schedule,
-      id: `s${Date.now()}`,
+      id: `SCH-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
     };
+
+    // Sync with backend
+    fetch(`${API_BASE}/schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newSchedule)
+    }).catch(err => console.error('Lỗi đồng bộ addSchedule:', err));
+
     setSchedules([...schedules, newSchedule]);
     logActivity('Thêm lịch trình', newSchedule.name, `Lịch sấy ${newSchedule.fruitType} - ${newSchedule.duration} phút`);
   };
 
   const updateSchedule = (scheduleId: string, updates: Partial<Schedule>) => {
     const schedule = schedules.find((s) => s.id === scheduleId);
+    // Sync with backend
+    fetch(`${API_BASE}/schedules/${scheduleId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('Lỗi đồng bộ updateSchedule:', err));
+
     setSchedules(
       schedules.map((s) => (s.id === scheduleId ? { ...s, ...updates } : s))
     );
-    
+
     if (schedule) {
       logActivity('Cập nhật lịch trình', schedule.name, `Cập nhật lịch trình ${schedule.name}`);
     }
@@ -837,6 +1007,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         users,
         login,
         logout,
+        requestOTP,
+        verifyOTP,
         resetPassword,
         addUser,
         updateUser,
