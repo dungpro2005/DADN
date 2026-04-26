@@ -6,8 +6,10 @@ import { toast } from 'sonner';
 
 type FormState = {
   username: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
+  phoneNumber: string;
   role: 'admin' | 'employee';
   password: string;
   confirmPassword: string;
@@ -21,8 +23,10 @@ export default function UsersPage() {
   const [editingUsername, setEditingUsername] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({
     username: '',
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
+    phoneNumber: '',
     role: 'employee',
     password: '',
     confirmPassword: '',
@@ -41,8 +45,10 @@ export default function UsersPage() {
   const resetForm = () => {
     setForm({
       username: '',
-      name: '',
+      firstName: '',
+      lastName: '',
       email: '',
+      phoneNumber: '',
       role: 'employee',
       password: '',
       confirmPassword: '',
@@ -62,8 +68,10 @@ export default function UsersPage() {
 
     setForm({
       username: entry.user.username,
-      name: entry.user.name,
+      firstName: entry.user.firstName || '',
+      lastName: entry.user.lastName || '',
       email: entry.user.email ?? '',
+      phoneNumber: entry.user.phoneNumber || '',
       role: entry.user.role,
       password: '',
       confirmPassword: '',
@@ -74,7 +82,7 @@ export default function UsersPage() {
   };
 
   const handleSubmit = () => {
-    if (!form.username || !form.name || !form.email) {
+    if (!form.username || !form.firstName || !form.lastName || !form.email) {
       toast.error('Vui lòng điền đầy đủ thông tin');
       return;
     }
@@ -97,8 +105,11 @@ export default function UsersPage() {
       const success = addUser(
         {
           username: form.username.trim(),
-          name: form.name.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          name: `${form.firstName} ${form.lastName}`.trim(),
           email: form.email.trim(),
+          phoneNumber: form.phoneNumber.trim(),
           role: form.role,
         },
         form.password
@@ -123,8 +134,11 @@ export default function UsersPage() {
     if (!editingUsername) return;
 
     const success = updateUser(editingUsername, {
-      name: form.name.trim(),
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      name: `${form.firstName} ${form.lastName}`.trim(),
       email: form.email.trim(),
+      phoneNumber: form.phoneNumber.trim(),
       role: form.role,
       password: form.password ? form.password : undefined,
     });
@@ -182,6 +196,7 @@ export default function UsersPage() {
                 <th className="px-4 py-3">Tên đăng nhập</th>
                 <th className="px-4 py-3">Họ tên</th>
                 <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Số điện thoại</th>
                 <th className="px-4 py-3">Vai trò</th>
                 <th className="px-4 py-3">Hành động</th>
               </tr>
@@ -192,13 +207,13 @@ export default function UsersPage() {
                   <td className="px-4 py-3">{u.username}</td>
                   <td className="px-4 py-3">{u.name}</td>
                   <td className="px-4 py-3">{u.email}</td>
+                  <td className="px-4 py-3">{u.phoneNumber || '---'}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                        u.role === 'admin'
+                      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${u.role === 'admin'
                           ? 'bg-purple-100 text-purple-700'
                           : 'bg-blue-100 text-blue-700'
-                      }`}
+                        }`}
                     >
                       {u.role === 'admin' ? 'Quản lý' : 'Nhân viên'}
                     </span>
@@ -276,32 +291,62 @@ export default function UsersPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Họ tên
-                </label>
-                <input
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  placeholder="vd: Nguyễn Văn A"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Họ
+                  </label>
+                  <input
+                    value={form.firstName}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, firstName: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="vd: Nguyễn"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tên
+                  </label>
+                  <input
+                    value={form.lastName}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, lastName: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="vd: Văn A"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email
-                </label>
-                <input
-                  value={form.email}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, email: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  placeholder="vd: a@example.com"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email
+                  </label>
+                  <input
+                    value={form.email}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, email: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="vd: a@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Số điện thoại
+                  </label>
+                  <input
+                    value={form.phoneNumber}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="vd: 0123456789"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

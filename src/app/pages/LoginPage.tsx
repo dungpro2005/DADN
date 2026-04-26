@@ -12,7 +12,9 @@ export default function LoginPage() {
   const [resetEmail, setResetEmail] = useState('');
   const [resetPassword, setResetPassword] = useState('');
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
-  const { login, resetPassword: doResetPassword } = useApp();
+  const [resetStep, setResetStep] = useState<'email' | 'otp' | 'reset'>('email');
+  const [otpCode, setOtpCode] = useState('');
+  const { login, requestOTP, verifyOTP, resetPassword: doResetPassword } = useApp();
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -26,13 +28,45 @@ export default function LoginPage() {
     }
   };
 
-  const handleResetPassword = (e: React.FormEvent) => {
+  const handleRequestOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!resetEmail) {
       toast.error('Vui lòng nhập email.');
       return;
     }
+
+    const res = await requestOTP(resetEmail.trim());
+    if (res.success) {
+      toast.success('Mã OTP đã được gửi tới email của bạn.');
+      setResetStep('otp');
+    } else {
+      if (res.debug_otp) {
+        toast.info(`[Debug] Mã OTP là: ${res.debug_otp}`);
+        setResetStep('otp');
+      } else {
+        toast.error(res.error || 'Không tìm thấy tài khoản với email này.');
+      }
+    }
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otpCode.length !== 4) {
+      toast.error('Vui lòng nhập mã OTP 4 số.');
+      return;
+    }
+
+    const res = await verifyOTP(resetEmail.trim(), otpCode);
+    if (res.success) {
+      toast.success('Xác thực thành công. Vui lòng nhập mật khẩu mới.');
+      setResetStep('reset');
+    } else {
+      toast.error(res.error || 'Mã OTP không đúng hoặc đã hết hạn.');
+    }
+  };
+
+  const handleFinalReset = async (e: React.FormEvent) => {
+    e.preventDefault();
 
     if (!resetPassword) {
       toast.error('Vui lòng nhập mật khẩu mới.');
@@ -44,14 +78,16 @@ export default function LoginPage() {
       return;
     }
 
-    const success = doResetPassword(resetEmail.trim(), resetPassword);
+    const success = await doResetPassword(resetEmail.trim(), resetPassword);
     if (success) {
       toast.success('Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.');
       setResetEmail('');
       setResetPassword('');
       setResetPasswordConfirm('');
+      setOtpCode('');
+      setResetStep('email');
     } else {
-      toast.error('Không tìm thấy tài khoản với email này.');
+      toast.error('Có lỗi xảy ra khi đặt lại mật khẩu.');
     }
   };
 
@@ -130,75 +166,101 @@ export default function LoginPage() {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Đặt lại mật khẩu</DialogTitle>
+                    <DialogTitle>
+                      {resetStep === 'email' && 'Quên mật khẩu'}
+                      {resetStep === 'otp' && 'Xác thực OTP'}
+                      {resetStep === 'reset' && 'Đặt lại mật khẩu'}
+                    </DialogTitle>
                     <DialogDescription>
-                      Nhập email để đặt lại mật khẩu của bạn.
+                      {resetStep === 'email' && 'Nhập email để nhận mã xác thực (OTP).'}
+                      {resetStep === 'otp' && `Mã OTP đã được gửi tới ${resetEmail}.`}
+                      {resetStep === 'reset' && 'Nhập mật khẩu mới cho tài khoản của bạn.'}
                     </DialogDescription>
                   </DialogHeader>
 
-                  <form onSubmit={handleResetPassword} className="space-y-4 mt-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email
-                      </label>
-                      <Input
-                        type="email"
-                        value={resetEmail}
-                        onChange={(e) => setResetEmail(e.target.value)}
-                        placeholder="example@domain.com"
-                        required
-                      />
-                    </div>
+                  {resetStep === 'email' && (
+                    <form onSubmit={handleRequestOTP} className="space-y-4 mt-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                        <Input
+                          type="email"
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          placeholder="example@domain.com"
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <DialogClose asChild>
+                          <button type="button" className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200">Hủy</button>
+                        </DialogClose>
+                        <button type="submit" className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">Gửi mã OTP</button>
+                      </div>
+                    </form>
+                  )}
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Mật khẩu mới
-                      </label>
-                      <Input
-                        type="password"
-                        value={resetPassword}
-                        onChange={(e) => setResetPassword(e.target.value)}
-                        placeholder="••••••"
-                        required
-                      />
-                    </div>
+                  {resetStep === 'otp' && (
+                    <form onSubmit={handleVerifyOTP} className="space-y-4 mt-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Mã OTP (4 số)</label>
+                        <Input
+                          type="text"
+                          maxLength={4}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="0000"
+                          className="text-center text-2xl tracking-widest"
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <button type="button" onClick={() => setResetStep('email')} className="text-sm text-orange-600 hover:underline">Quay lại</button>
+                        <div className="flex gap-2">
+                          <DialogClose asChild>
+                            <button type="button" className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200">Hủy</button>
+                          </DialogClose>
+                          <button type="submit" className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">Xác thực</button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Xác nhận mật khẩu
-                      </label>
-                      <Input
-                        type="password"
-                        value={resetPasswordConfirm}
-                        onChange={(e) => setResetPasswordConfirm(e.target.value)}
-                        placeholder="••••••"
-                        required
-                      />
-                    </div>
-
-                    <div className="flex justify-end gap-2">
-                      <DialogClose asChild>
-                        <button
-                          type="button"
-                          className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200"
-                        >
-                          Hủy
-                        </button>
-                      </DialogClose>
-                      <button
-                        type="submit"
-                        className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
-                      >
-                        Đặt lại
-                      </button>
-                    </div>
-                  </form>
+                  {resetStep === 'reset' && (
+                    <form onSubmit={handleFinalReset} className="space-y-4 mt-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Mật khẩu mới</label>
+                        <Input
+                          type="password"
+                          value={resetPassword}
+                          onChange={(e) => setResetPassword(e.target.value)}
+                          placeholder="••••••"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Xác nhận mật khẩu</label>
+                        <Input
+                          type="password"
+                          value={resetPasswordConfirm}
+                          onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                          placeholder="••••••"
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <DialogClose asChild>
+                          <button type="button" className="rounded-md px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200">Hủy</button>
+                        </DialogClose>
+                        <button type="submit" className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">Đổi mật khẩu</button>
+                      </div>
+                    </form>
+                  )}
                 </DialogContent>
               </Dialog>
             </div>
           </form>
 
-          
+
         </div>
       </div>
     </div>
