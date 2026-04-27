@@ -46,10 +46,6 @@ CREATE TABLE Schedules (
     fruitTypeId NVARCHAR(50) NOT NULL,
     description NVARCHAR(255) NULL,
     durationMinutes INT NOT NULL CHECK (durationMinutes > 0),
-    targetTempMin DECIMAL(5,2) NOT NULL DEFAULT 40.00,
-    targetTempMax DECIMAL(5,2) NOT NULL DEFAULT 60.00,
-    targetHumidityMin DECIMAL(5,2) NOT NULL DEFAULT 30.00,
-    targetHumidityMax DECIMAL(5,2) NOT NULL DEFAULT 50.00,
     createdAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     CONSTRAINT fk_schedule_fruitType FOREIGN KEY (fruitTypeId) REFERENCES FruitTypes(fruitTypeId)
 );
@@ -121,7 +117,7 @@ CREATE TABLE MachineLogs (
     loggedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     temp DECIMAL(5,2) NOT NULL,
     humidity DECIMAL(5,2) NOT NULL,
-    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 3),
+    fanLevel INT NOT NULL CHECK (fanLevel BETWEEN 0 AND 5),
     isOn BIT NOT NULL,
     isDoorOpen BIT NOT NULL,
     mode NVARCHAR(20) NOT NULL CHECK (mode IN (N'manual', N'automatic')),
