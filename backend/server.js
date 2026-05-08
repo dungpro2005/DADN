@@ -3,6 +3,9 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios'); // Dùng để gọi ngược lại Gateway
+const { sql, poolPromise } = require('./db');
+
+require('dotenv').config();
 
 const app = express();
 const PORT = 8000;
@@ -13,62 +16,11 @@ const OTP_SERVICE_URL = "http://localhost:5001/api/otp"; // Địa chỉ Python 
 app.use(cors());
 app.use(express.json());
 
-// Lưu trữ dữ liệu trong bộ nhớ (In-memory)
+// Lưu trữ dữ liệu trong bộ nhớ (In-memory) - Chỉ dùng cho telemetry tạm thời
 let telemetryData = [];
 let latestData = {};
 
-// Mock dữ liệu máy sấy (từ insertdata.sql)
-let machines = [
-  { id: 'MCH-001', name: 'Máy sấy xoài 01', buildingId: 'BLD-001', currentTemp: 59, currentHumidity: 35, fanLevel: 3, isDoorOpen: false, lastUpdate: new Date().toISOString(), currentFruit: 'Xoài' },
-  { id: 'MCH-002', name: 'Máy sấy chuối 01', buildingId: 'BLD-001', currentTemp: 52, currentHumidity: 37, fanLevel: 3, isDoorOpen: false, lastUpdate: new Date().toISOString(), currentFruit: 'Chuối' },
-  { id: 'MCH-003', name: 'Máy sấy thanh long 01', buildingId: 'BLD-002', currentTemp: 56, currentHumidity: 40, fanLevel: 3, isDoorOpen: false, lastUpdate: new Date().toISOString(), currentFruit: 'Thanh long' },
-  { id: 'MCH-004', name: 'Máy sấy dứa 01', buildingId: 'BLD-002', currentTemp: 60, currentHumidity: 33, fanLevel: 3, isDoorOpen: true, lastUpdate: new Date().toISOString(), currentFruit: 'Dứa' },
-  { id: 'MCH-005', name: 'Máy sấy nhãn thử nghiệm', buildingId: 'BLD-003', currentTemp: 27, currentHumidity: 65, fanLevel: 0, isDoorOpen: false, lastUpdate: new Date().toISOString(), currentFruit: 'Nhãn' }
-];
-
-// Dữ liệu người dùng (từ insertdata.sql)
-let users = [
-  { username: 'admin01', role: 'admin', name: 'Nguyễn An', firstName: 'Nguyễn', lastName: 'An', email: 'an.nguyen@example.com', phoneNumber: '0901000001' },
-  { username: 'employee01', role: 'employee', name: 'Trần Bình', firstName: 'Trần', lastName: 'Bình', email: 'binh.tran@example.com', phoneNumber: '0901000002' },
-  { username: 'employee02', role: 'employee', name: 'Lê Chi', firstName: 'Lê', lastName: 'Chi', email: 'chi.le@example.com', phoneNumber: '0901000003' },
-  { username: 'employee03', role: 'employee', name: 'Phạm Dũng', firstName: 'Phạm', lastName: 'Dũng', email: 'dung.pham@example.com', phoneNumber: '0901000004' },
-  { username: 'admin02', role: 'admin', name: 'Võ Hạnh', firstName: 'Võ', lastName: 'Hạnh', email: 'hanh.vo@example.com', phoneNumber: '0901000005' },
-  { username: 'employee04', role: 'employee', name: 'Đỗ Khoa', firstName: 'Đỗ', lastName: 'Khoa', email: 'khoa.do@example.com', phoneNumber: '0901000006' }
-];
-
-// Dữ liệu lịch trình sấy (từ insertdata.sql)
-let schedules = [
-  {
-    id: 'SCH-MANGO-STD',
-    name: 'Xoài tiêu chuẩn',
-    fruitType: 'Xoài',
-    duration: 720,
-    targetTempMin: 50,
-    targetTempMax: 60,
-    targetHumidityMin: 30,
-    targetHumidityMax: 45,
-    steps: [
-      { id: 'STEP-MANGO-001', order: 1, duration: 120, tempMin: 45, tempMax: 50, humidityMin: 45, humidityMax: 55, fanLevel: 2, doorOpen: false },
-      { id: 'STEP-MANGO-002', order: 2, duration: 360, tempMin: 58, tempMax: 62, humidityMin: 30, humidityMax: 40, fanLevel: 3, doorOpen: false },
-      { id: 'STEP-MANGO-003', order: 3, duration: 240, tempMin: 52, tempMax: 56, humidityMin: 25, humidityMax: 35, fanLevel: 3, doorOpen: false }
-    ]
-  },
-  {
-    id: 'SCH-BANANA-LOW',
-    name: 'Chuối nhiệt thấp',
-    fruitType: 'Chuối',
-    duration: 600,
-    targetTempMin: 45,
-    targetTempMax: 55,
-    targetHumidityMin: 35,
-    targetHumidityMax: 50,
-    steps: [
-      { id: 'STEP-BANANA-001', order: 1, duration: 180, tempMin: 42, tempMax: 48, humidityMin: 45, humidityMax: 55, fanLevel: 2, doorOpen: false },
-      { id: 'STEP-BANANA-002', order: 2, duration: 300, tempMin: 50, tempMax: 55, humidityMin: 32, humidityMax: 42, fanLevel: 3, doorOpen: false },
-      { id: 'STEP-BANANA-003', order: 3, duration: 120, tempMin: 48, tempMax: 52, humidityMin: 28, humidityMax: 36, fanLevel: 3, doorOpen: false }
-    ]
-  }
-];
+// Dữ liệu người dùng, máy sấy, tòa nhà và lịch trình sẽ được lấy từ Database
 
 // --- 1. Nhận dữ liệu từ Gateway ---
 app.post('/api/telemetry', (req, res) => {
@@ -98,15 +50,27 @@ app.post('/api/telemetry', (req, res) => {
     // Cập nhật trạng thái mới nhất
     latestData[zone_id] = telemetryEntry;
 
-    // Cập nhật trực tiếp vào danh sách máy sấy
-    const machine = machines.find(m => m.id === zone_id.toString());
-    if (machine) {
-      machine.currentTemp = telemetryEntry.temperature;
-      machine.currentHumidity = telemetryEntry.humidity;
-      machine.fanLevel = telemetryEntry.fan_level;
-      machine.isDoorOpen = telemetryEntry.isDoorOpen;
-      machine.lastUpdate = telemetryEntry.received_at;
-    }
+    // Cập nhật trực tiếp vào database (Nếu cần thiết kế bảng riêng cho trạng thái máy sấy)
+    const updateMachineInDB = async () => {
+      try {
+        const pool = await poolPromise;
+        await pool.request()
+          .input('id', sql.NVarChar, zone_id.toString())
+          .input('temp', sql.Float, telemetryEntry.temperature)
+          .input('humi', sql.Float, telemetryEntry.humidity)
+          .input('fan', sql.Int, telemetryEntry.fan_level)
+          .input('door', sql.Bit, telemetryEntry.isDoorOpen ? 1 : 0)
+          .input('lastUpdate', sql.DateTime2, new Date())
+          .query(`
+            UPDATE Machines 
+            SET currentTemp = @temp, currentHumidity = @humi, fanLevel = @fan, isDoorOpen = @door, lastUpdate = @lastUpdate
+            WHERE machineId = @id
+          `);
+      } catch (err) {
+        console.error('Lỗi cập nhật máy sấy vào DB:', err);
+      }
+    };
+    updateMachineInDB();
 
     // Gửi dữ liệu thời gian thực qua WebSocket
     broadcast({ type: 'telemetry_update', data: telemetryEntry });
@@ -137,7 +101,108 @@ app.post('/api/control', async (req, res) => {
 });
 
 // --- 3. Các API lấy dữ liệu cho Frontend ---
-app.get('/api/machines', (req, res) => res.json(machines));
+app.get('/api/buildings', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT b.buildingId as id, b.buildingName as name, b.location,
+      (SELECT COUNT(*) FROM Machines m WHERE m.buildingId = b.buildingId) as machineCount
+      FROM Buildings b
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/buildings', async (req, res) => {
+  try {
+    const { id, name, location } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('location', sql.NVarChar, location)
+      .query('INSERT INTO Buildings (buildingId, buildingName, location) VALUES (@id, @name, @location)');
+    res.status(201).json({ id, name, location });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/buildings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Buildings WHERE buildingId = @id');
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/machines', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT machineId as id, machineName as name, buildingId, currentTemp, currentHumidity, fanLevel, isDoorOpen, lastUpdate, currentFruitType as currentFruit, mode, targetTempMin, targetTempMax, targetHumidityMin, targetHumidityMax FROM Machines');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/machines', async (req, res) => {
+  try {
+    const { id, name, buildingId } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('buildingId', sql.NVarChar, buildingId)
+      .query('INSERT INTO Machines (machineId, machineName, buildingId, isOn, isDoorOpen, currentTemp, currentHumidity, fanLevel, mode) VALUES (@id, @name, @buildingId, 0, 0, 0, 0, 0, \'manual\')');
+    res.status(201).json(req.body);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/machines/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    const pool = await poolPromise;
+    let query = 'UPDATE Machines SET ';
+    const request = pool.request();
+    request.input('id', sql.NVarChar, id);
+
+    const setClauses = [];
+    Object.keys(updates).forEach((key, index) => {
+      // Map frontend fields to backend DB fields if necessary
+      let dbKey = key;
+      if (key === 'currentFruit') dbKey = 'currentFruitType';
+      
+      request.input(`param${index}`, updates[key]);
+      setClauses.push(`${dbKey} = @param${index}`);
+    });
+    
+    query += setClauses.join(', ') + ' WHERE machineId = @id';
+    await request.query(query);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/machines/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Machines WHERE machineId = @id');
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/telemetry/latest', (req, res) => res.json(latestData));
 app.get('/api/logs', (req, res) => {
   // Trả về log định dạng đẹp để vẽ biểu đồ
@@ -151,15 +216,24 @@ app.get('/api/logs', (req, res) => {
 });
 
 // --- 4. Quản lý Người dùng & OTP ---
-app.get('/api/users', (req, res) => res.json(users));
+app.get('/api/users', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT username, role, firstName, lastName, email, phoneNumber FROM Users');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Yêu cầu OTP
 app.post('/api/otp/request', async (req, res) => {
   const { email } = req.body;
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(404).json({ error: 'Không tìm thấy email người dùng' });
-
   try {
+    const pool = await poolPromise;
+    const result = await pool.request().input('email', sql.NVarChar, email).query('SELECT * FROM Users WHERE email = @email');
+    if (result.recordset.length === 0) return res.status(404).json({ error: 'Không tìm thấy email người dùng' });
+
     const response = await axios.post(`${OTP_SERVICE_URL}/generate`, { email });
     res.json(response.data);
   } catch (error) {
@@ -180,57 +254,107 @@ app.post('/api/otp/verify', async (req, res) => {
 });
 
 // Đổi mật khẩu (Sau khi đã xác thực OTP)
-// Lưu ý: Trong hệ thống thực tế cần token bảo mật, ở đây mock đơn giản.
-app.post('/api/users/reset-password', (req, res) => {
+app.post('/api/users/reset-password', async (req, res) => {
   const { email, newPassword } = req.body;
-  const userIndex = users.findIndex(u => u.email === email);
-  if (userIndex === -1) return res.status(404).json({ error: 'Người dùng không tồn tại' });
-
-  // Cập nhật mật khẩu trong bộ nhớ backend
-  // Vì hiện tại server.js lưu users không có field password, 
-  // ta chỉ trả về thành công để frontend cập nhật context/localStorage.
-  console.log(`[Reset] Reset password for ${email} to ${newPassword}`);
-  res.json({ success: true, message: 'Đặt lại mật khẩu thành công' });
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('email', sql.NVarChar, email)
+      .input('password', sql.NVarChar, newPassword) // Trong thực tế nên hash password
+      .query('UPDATE Users SET passwordHash = @password WHERE email = @email');
+    
+    console.log(`[Reset] Reset password for ${email} to ${newPassword}`);
+    res.json({ success: true, message: 'Đặt lại mật khẩu thành công' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/users', (req, res) => {
-  const newUser = req.body;
-  if (!newUser.username) return res.status(400).json({ error: 'Username là bắt buộc' });
-  users.push(newUser);
-  res.status(201).json(newUser);
+app.post('/api/users', async (req, res) => {
+  try {
+    const { username, role, firstName, lastName, email, phoneNumber, password } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, `USR-${Date.now()}`)
+      .input('username', sql.NVarChar, username)
+      .input('password', sql.NVarChar, password || 'Password123')
+      .input('firstName', sql.NVarChar, firstName)
+      .input('lastName', sql.NVarChar, lastName)
+      .input('email', sql.NVarChar, email)
+      .input('phone', sql.NVarChar, phoneNumber)
+      .input('role', sql.NVarChar, role)
+      .query('INSERT INTO Users (userId, username, passwordHash, firstName, lastName, email, phoneNumber, role) VALUES (@id, @username, @password, @firstName, @lastName, @email, @phone, @role)');
+    res.status(201).json(req.body);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/users/:username', (req, res) => {
-  const { username } = req.params;
-  const updates = req.body;
-  const index = users.findIndex(u => u.username === username);
-  if (index === -1) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
-  users[index] = { ...users[index], ...updates };
-  res.json(users[index]);
+app.put('/api/users/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const updates = req.body;
+    const pool = await poolPromise;
+    let query = 'UPDATE Users SET ';
+    const request = pool.request();
+    request.input('username', sql.NVarChar, username);
+
+    const setClauses = [];
+    Object.keys(updates).forEach((key, index) => {
+      if (key === 'password') {
+         request.input(`param${index}`, updates[key]);
+         setClauses.push(`passwordHash = @param${index}`);
+      } else {
+         request.input(`param${index}`, updates[key]);
+         setClauses.push(`${key} = @param${index}`);
+      }
+    });
+    
+    query += setClauses.join(', ') + ' WHERE username = @username';
+    await request.query(query);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/users/:username', (req, res) => {
-  const { username } = req.params;
-  users = users.filter(u => u.username !== username);
-  res.status(204).send();
+app.delete('/api/users/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const pool = await poolPromise;
+    await pool.request().input('username', sql.NVarChar, username).query('DELETE FROM Users WHERE username = @username');
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- 5. Quản lý Lịch trình ---
-app.get('/api/schedules', (req, res) => res.json(schedules));
-
-app.post('/api/schedules', (req, res) => {
-  const newSchedule = { ...req.body, id: `SCH-${uuidv4().substring(0, 8)}` };
-  schedules.push(newSchedule);
-  res.status(201).json(newSchedule);
+app.get('/api/schedules', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT scheduleId as id, scheduleName as name, fruitTypeId as fruitType, durationMinutes as duration FROM Schedules');
+    // Cần lấy thêm các bước (steps) nếu frontend yêu cầu
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/schedules/:id', (req, res) => {
-  const { id } = req.params;
-  const updates = req.body;
-  const index = schedules.findIndex(s => s.id === id);
-  if (index === -1) return res.status(404).json({ error: 'Không tìm thấy lịch trình' });
-  schedules[index] = { ...schedules[index], ...updates };
-  res.json(schedules[index]);
+app.post('/api/schedules', async (req, res) => {
+  try {
+    const { id, name, fruitType, duration } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('fruitType', sql.NVarChar, fruitType)
+      .input('duration', sql.Int, duration)
+      .query('INSERT INTO Schedules (scheduleId, scheduleName, fruitTypeId, durationMinutes) VALUES (@id, @name, @fruitType, @duration)');
+    res.status(201).json(req.body);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- 4. WebSocket Server ---
