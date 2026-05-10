@@ -24,7 +24,39 @@ import {
 import DateRangePicker from '../components/DateRangePicker';
 
 export default function StatisticsPage() {
-  const { buildings, machines, logs } = useApp();
+//hàm cho data fake
+  const generateMockLogs = () => {
+  const mockLogs: any[] = [];
+
+  machines.forEach((machine) => {
+    for (let i = 0; i < 7; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+
+      for (let j = 0; j < 5; j++) {
+        const timestamp = new Date(date);
+        timestamp.setHours(j * 4);
+
+        mockLogs.push({
+          machineId: machine.id,
+          timestamp: timestamp.toISOString(),
+          temp: 30 + Math.random() * 10,        // 30-40°C
+          humidity: 50 + Math.random() * 20,    // 50-70%
+          fanLevel: Math.floor(Math.random() * 3) + 1, // 1-3
+          isOn: Math.random() > 0.2, // 80% chạy
+        });
+      }
+    }
+  });
+
+  return mockLogs;
+};
+
+  //const { buildings, machines, logs } = useApp();
+//Giả sử máy chạy thật hiện tại đang sử dụng data fake
+const { buildings, machines, logs: realLogs } = useApp();
+
+const logs = realLogs.length > 0 ? realLogs : generateMockLogs();
 
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [selectedMachine, setSelectedMachine] = useState<string>('');
@@ -225,6 +257,77 @@ export default function StatisticsPage() {
   };
 
   const machineComparison = getMachineComparison();
+
+// Building stats
+const getBuildingStats = () => {
+  if (!startDate || !endDate) return [];
+
+  return buildings
+    .map((building) => {
+      const buildingMachines = machines.filter(
+        (m) => m.buildingId === building.id
+      );
+
+      const buildingLogs = logs.filter(
+        (log) =>
+          new Date(log.timestamp) >= startDate &&
+          new Date(log.timestamp) <= endDate &&
+          buildingMachines.some((m) => m.id === log.machineId)
+      );
+
+      if (buildingLogs.length === 0) return null;
+
+      const avgTemp =
+        Math.round(
+          (buildingLogs.reduce((sum, log) => sum + log.temp, 0) /
+            buildingLogs.length) *
+          10
+        ) / 10;
+
+      const avgHumidity =
+        Math.round(
+          (buildingLogs.reduce((sum, log) => sum + log.humidity, 0) /
+            buildingLogs.length) *
+          10
+        ) / 10;
+
+      const avgFanLevel =
+        Math.round(
+          (buildingLogs.reduce((sum, log) => sum + log.fanLevel, 0) /
+            buildingLogs.length) *
+          10
+        ) / 10;
+
+      const uptime =
+        Math.round(
+          (buildingLogs.filter((log) => log.isOn).length /
+            buildingLogs.length) *
+          1000
+        ) / 10;
+
+      const activeMachines = new Set(
+        buildingLogs
+          .filter((log) => log.isOn)
+          .map((log) => log.machineId)
+      ).size;
+
+      const runningSeconds = buildingLogs.filter((log) => log.isOn).length;
+
+      const power = Math.round(runningSeconds * 1.4 * 10) / 10;
+      return {
+        name: building.name,
+        avgTemp,
+        avgHumidity,
+        avgFanLevel,
+        uptime,
+        activeMachines,
+        power,
+      };
+    })
+    .filter((b) => b !== null);
+};
+
+const buildingStats = getBuildingStats();
 
   return (
     <div>
@@ -466,6 +569,78 @@ export default function StatisticsPage() {
           </div>
         </>
       )}
+{!selectedMachine && buildingStats.length > 0 && (
+  <>
+    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">
+        Nhiệt độ trung bình theo tòa nhà
+      </h2>
+      <ResponsiveContainer width="100%" height={400}>
+        <BarChart data={buildingStats}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="avgTemp" fill="#ef4444" name="Nhiệt độ (°C)" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+
+    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">
+        Độ ẩm và mức quạt
+      </h2>
+      <ResponsiveContainer width="100%" height={400}>
+        <BarChart data={buildingStats}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="avgHumidity" fill="#3b82f6" name="Độ ẩm (%)" />
+          <Bar dataKey="avgFanLevel" fill="#9333ea" name="Mức quạt" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+
+    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">
+        Số máy đang hoạt động
+      </h2>
+      <ResponsiveContainer width="100%" height={400}>
+        <BarChart data={buildingStats}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar
+            dataKey="activeMachines"
+            fill="#10b981"
+            name="Máy đang chạy"
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+
+    <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">
+        Công suất hoạt động
+      </h2>
+      <ResponsiveContainer width="100%" height={400}>
+        <BarChart data={buildingStats}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="power" fill="#f59e0b" name="Công suất" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </>
+)}
 
       {/* Machine Comparison */}
       {!selectedMachine && machineComparison.length > 0 && (
@@ -544,3 +719,9 @@ export default function StatisticsPage() {
     </div>
   );
 }
+
+
+
+
+
+

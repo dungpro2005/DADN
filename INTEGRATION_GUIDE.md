@@ -15,9 +15,16 @@ This backend server acts as a bridge between your React frontend and the Yolobit
 Yolobit Device
      ↓ (Serial)
 Backend Server (Node.js/Express)
-     ↑ (WebSocket/HTTP)
+     ↑ (SQL Server / WebSocket / HTTP)
 Frontend (React/TypeScript)
 ```
+
+## Database Setup (SQLite)
+
+The system now uses **SQLite**, which is a lightweight database that doesn't require a separate server installation.
+
+1.  **Automatic Setup**: The database file (`database.sqlite`) is automatically created and seeded with initial data when you start the backend for the first time.
+2.  **No Configuration Needed**: You don't need to install SQL Server or run manual SQL scripts anymore.
 
 ## Quick Start
 
@@ -54,22 +61,20 @@ cp .env.example .env
 nano .env  # or use your favorite editor
 ```
 
-Update with your serial port:
+Update with your credentials and configuration:
 
-**Linux/macOS example:**
 ```env
-PORT=3001
-SERIAL_PORT=/dev/ttyUSB0
-BAUD_RATE=115200
+# Server Configuration
+PORT=8000
 NODE_ENV=development
-```
 
-**Windows example:**
-```env
-PORT=3001
-SERIAL_PORT=COM3
+# Serial Port Configuration
+SERIAL_PORT=COM7
 BAUD_RATE=115200
-NODE_ENV=development
+
+# Adafruit IO Configuration
+ADAFRUIT_IO_USERNAME=your_username
+ADAFRUIT_IO_KEY=your_aio_key
 ```
 
 ### 4. Start the Backend
@@ -232,33 +237,44 @@ ws.send(JSON.stringify({ command: 'set_fan', level: 2 }));
 
 ```bash
 # Health check
-GET http://localhost:3001/health
+GET http://localhost:8000/health
+
+# --- Database Entities ---
+
+# Buildings (Tòa nhà)
+GET  http://localhost:8000/api/buildings
+POST http://localhost:8000/api/buildings
+Body: { "id": "BLD-001", "name": "Xưởng A", "location": "Hà Nội" }
+DELETE http://localhost:8000/api/buildings/:id
+
+# Machines (Máy sấy)
+GET  http://localhost:8000/api/machines
+POST http://localhost:8000/api/machines
+Body: { "id": "MCH-001", "name": "Máy 1", "buildingId": "BLD-001" }
+PUT  http://localhost:8000/api/machines/:id
+DELETE http://localhost:8000/api/machines/:id
+
+# Users (Nhân viên)
+GET  http://localhost:8000/api/users
+POST http://localhost:8000/api/users
+PUT  http://localhost:8000/api/users/:username
+DELETE http://localhost:8000/api/users/:username
+
+# Schedules (Lịch sấy)
+GET  http://localhost:8000/api/schedules
+POST http://localhost:8000/api/schedules
+
+# --- Control & Telemetry ---
 
 # Get connection status
-GET http://localhost:3001/api/status
+GET http://localhost:8000/api/status
 
 # Get current sensor data
-GET http://localhost:3001/api/sensors
+GET http://localhost:8000/api/sensors
 
-# Set fan level (0-5)
-POST http://localhost:3001/api/fan
-Body: { "level": 3 }
-
-# Control power
-POST http://localhost:3001/api/power
-Body: { "state": true }
-
-# Set heater (0-5)
-POST http://localhost:3001/api/heater
-Body: { "level": 2 }
-
-# Set humidifier (0-5)
-POST http://localhost:3001/api/humidifier
-Body: { "level": 1 }
-
-# Configure devices
-POST http://localhost:3001/api/configure
-Body: { "config": { "fanPin": 2, "heaterPin": 5 } }
+# Control Command (Fan, Door, etc.)
+POST http://localhost:8000/api/control
+Body: { "device": "fan", "value": 3, "zone_id": "MCH-001" }
 ```
 
 ## Running Both Frontend and Backend

@@ -251,6 +251,51 @@ const INITIAL_SCHEDULES: Schedule[] = [
       },
     ],
   },
+  {
+    id: 's3',
+    name: 'Lịch sấy thanh long',
+    fruitType: 'Thanh long',
+    duration: 480,
+    targetTempMin: 45,
+    targetTempMax: 60,
+    targetHumidityMin: 30,
+    targetHumidityMax: 60,
+    steps: [
+      { id: 'step1', order: 1, duration: 120, tempMin: 45, tempMax: 50, humidityMin: 50, humidityMax: 60, fanLevel: 2, doorOpen: false },
+      { id: 'step2', order: 2, duration: 240, tempMin: 55, tempMax: 60, humidityMin: 35, humidityMax: 45, fanLevel: 3, doorOpen: false },
+      { id: 'step3', order: 3, duration: 120, tempMin: 50, tempMax: 55, humidityMin: 30, humidityMax: 38, fanLevel: 3, doorOpen: false }
+    ],
+  },
+  {
+    id: 's4',
+    name: 'Lịch sấy dứa',
+    fruitType: 'Dứa',
+    duration: 540,
+    targetTempMin: 44,
+    targetTempMax: 63,
+    targetHumidityMin: 25,
+    targetHumidityMax: 55,
+    steps: [
+      { id: 'step1', order: 1, duration: 120, tempMin: 44, tempMax: 50, humidityMin: 45, humidityMax: 55, fanLevel: 2, doorOpen: false },
+      { id: 'step2', order: 2, duration: 300, tempMin: 57, tempMax: 63, humidityMin: 28, humidityMax: 38, fanLevel: 3, doorOpen: false },
+      { id: 'step3', order: 3, duration: 120, tempMin: 52, tempMax: 56, humidityMin: 25, humidityMax: 32, fanLevel: 3, doorOpen: false }
+    ],
+  },
+  {
+    id: 's5',
+    name: 'Lịch sấy nhãn',
+    fruitType: 'Nhãn',
+    duration: 660,
+    targetTempMin: 45,
+    targetTempMax: 65,
+    targetHumidityMin: 22,
+    targetHumidityMax: 55,
+    steps: [
+      { id: 'step1', order: 1, duration: 180, tempMin: 45, tempMax: 52, humidityMin: 45, humidityMax: 55, fanLevel: 2, doorOpen: false },
+      { id: 'step2', order: 2, duration: 360, tempMin: 60, tempMax: 65, humidityMin: 25, humidityMax: 35, fanLevel: 3, doorOpen: false },
+      { id: 'step3', order: 3, duration: 120, tempMin: 55, tempMax: 60, humidityMin: 22, humidityMax: 30, fanLevel: 3, doorOpen: false }
+    ],
+  },
 ];
 
 // Generate mock logs
@@ -301,8 +346,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Fetch data from backend API
   const fetchDataFromAPI = async () => {
     try {
-      const [machinesRes, logsRes, usersRes, schedulesRes] = await Promise.all([
+      const [machinesRes, buildingsRes, logsRes, usersRes, schedulesRes] = await Promise.all([
         fetch(`${API_BASE}/machines`),
+        fetch(`${API_BASE}/buildings`),
         fetch(`${API_BASE}/logs`),
         fetch(`${API_BASE}/users`),
         fetch(`${API_BASE}/schedules`)
@@ -319,33 +365,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           isOn: m.lastUpdate ? true : false,
           isDoorOpen: m.isDoorOpen || false,
           currentTemp: m.currentTemp || 0,
-          targetTempMin: 60,
-          targetTempMax: 70,
+          targetTempMin: m.targetTempMin || 60,
+          targetTempMax: m.targetTempMax || 70,
           currentHumidity: m.currentHumidity || 0,
-          targetHumidityMin: 40,
-          targetHumidityMax: 50,
+          targetHumidityMin: m.targetHumidityMin || 40,
+          targetHumidityMax: m.targetHumidityMax || 50,
           fanLevel: (m.fanLevel || 0) as 0 | 1 | 2 | 3,
           heaterLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
           humidifierLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
-          mode: 'automatic' as const,
+          mode: m.mode || 'automatic' as const,
         }));
         setMachines(convertedMachines);
+      }
 
-        // Build buildings list from machines
-        const buildingMap = new Map<string, Building>();
-        convertedMachines.forEach(machine => {
-          if (!buildingMap.has(machine.buildingId)) {
-            buildingMap.set(machine.buildingId, {
-              id: machine.buildingId,
-              name: `Tòa ${machine.buildingId}`,
-              location: `Khu vực ${machine.buildingId}`,
-              machineCount: 0,
-            });
-          }
-          const building = buildingMap.get(machine.buildingId)!;
-          building.machineCount++;
-        });
-        setBuildings(Array.from(buildingMap.values()));
+      // Fetch buildings
+      if (buildingsRes.ok) {
+        const buildingsData = await buildingsRes.json();
+        setBuildings(buildingsData);
       }
 
       // Fetch logs
@@ -758,15 +794,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addBuilding = (building: Omit<Building, 'id' | 'machineCount'>) => {
     const newBuilding: Building = {
       ...building,
-      id: `b${Date.now()}`,
+      id: `BLD-${Date.now()}`,
       machineCount: 0,
     };
+
+    // Sync with backend
+    fetch(`${API_BASE}/buildings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newBuilding)
+    }).catch(err => console.error('Lỗi đồng bộ addBuilding:', err));
+
     setBuildings([...buildings, newBuilding]);
     logActivity('Thêm tòa nhà', newBuilding.name, `Tòa nhà mới tại ${building.location}`);
   };
 
   const removeBuilding = (buildingId: string) => {
     const building = buildings.find((b) => b.id === buildingId);
+
+    // Sync with backend
+    fetch(`${API_BASE}/buildings/${buildingId}`, {
+      method: 'DELETE'
+    }).catch(err => console.error('Lỗi đồng bộ removeBuilding:', err));
+
     setBuildings(buildings.filter((b) => b.id !== buildingId));
     setMachines(machines.filter((m) => m.buildingId !== buildingId));
     if (building) {
@@ -777,8 +827,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addMachine = (machine: Omit<Machine, 'id'>) => {
     const newMachine: Machine = {
       ...machine,
-      id: `m${Date.now()}`,
+      id: `MCH-${Date.now()}`,
     };
+
+    // Sync with backend
+    fetch(`${API_BASE}/machines`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newMachine)
+    }).catch(err => console.error('Lỗi đồng bộ addMachine:', err));
+
     setMachines([...machines, newMachine]);
 
     // Update building machine count
@@ -797,6 +855,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeMachine = (machineId: string) => {
     const machine = machines.find((m) => m.id === machineId);
     if (machine) {
+      // Sync with backend
+      fetch(`${API_BASE}/machines/${machineId}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Lỗi đồng bộ removeMachine:', err));
+
       setMachines(machines.filter((m) => m.id !== machineId));
 
       // Update building machine count
@@ -814,6 +877,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateMachine = (machineId: string, updates: Partial<Machine>) => {
     const machine = machines.find((m) => m.id === machineId);
+    
+    // Sync with backend
+    fetch(`${API_BASE}/machines/${machineId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('Lỗi đồng bộ updateMachine:', err));
+
     setMachines(
       machines.map((m) => (m.id === machineId ? { ...m, ...updates } : m))
     );
