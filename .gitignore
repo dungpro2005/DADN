@@ -1,2 +1,8 @@
 node_modules
 .env
+venv
+backend/venv/
+backend/database.sqlite
+*.sqlite
+__pycache__/
+*.pyc
