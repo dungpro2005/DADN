@@ -25,8 +25,8 @@ export interface Machine {
   targetHumidityMin: number;
   targetHumidityMax: number;
   fanLevel: 0 | 1 | 2 | 3; // 0 = off, 1-3 = speed levels
-  heaterLevel: 0 | 1 | 2 | 3 | 4 | 5; // 0 = off, 1-5 = heating levels
-  humidifierLevel: 0 | 1 | 2 | 3 | 4 | 5; // 0 = off, 1-5 = humidifying levels
+  heaterLevel: 0 | 1 | 2 | 3; // 0 = off, 1-3 = heating levels
+  humidifierLevel: 0 | 1; // 0 = off, 1 = on
   mode: 'manual' | 'automatic';
   currentFruit?: string;
   scheduleId?: string;

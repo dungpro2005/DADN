@@ -36,6 +36,8 @@ interface AppContextType {
   getStatsForMachine: (machineId: string, startDate?: Date, endDate?: Date) => any;
   getStatsForBuilding: (buildingId: string, startDate?: Date, endDate?: Date) => any;
   logActivity: (action: string, target: string, details: string) => void;
+  liveDataMachineId: string | null;
+  setLiveDataMachineId: (machineId: string | null) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -166,7 +168,7 @@ const INITIAL_MACHINES: Machine[] = [
     targetHumidityMax: 45,
     fanLevel: 3,
     heaterLevel: 1,
-    humidifierLevel: 2,
+    humidifierLevel: 1,
     mode: 'manual',
   },
 ];
@@ -295,6 +297,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [logs, setLogs] = useState<MachineLog[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [liveDataMachineId, setLiveDataMachineId] = useState<string | null>(null);
+  const liveDataMachineIdRef = useRef<string | null>(null);
+
+  // Keep ref in sync with state for use inside WebSocket closure
+  useEffect(() => {
+    liveDataMachineIdRef.current = liveDataMachineId;
+  }, [liveDataMachineId]);
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -316,18 +325,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: m.id,
           name: m.name,
           buildingId: m.buildingId,
-          isOn: m.lastUpdate ? true : false,
-          isDoorOpen: m.isDoorOpen || false,
+          isOn: m.isOn === 1 || m.isOn === true,
+          isDoorOpen: m.isDoorOpen === 1 || m.isDoorOpen === true,
           currentTemp: m.currentTemp || 0,
-          targetTempMin: 60,
-          targetTempMax: 70,
+          targetTempMin: m.targetTempMin || 60,
+          targetTempMax: m.targetTempMax || 70,
           currentHumidity: m.currentHumidity || 0,
-          targetHumidityMin: 40,
-          targetHumidityMax: 50,
+          targetHumidityMin: m.targetHumidityMin || 40,
+          targetHumidityMax: m.targetHumidityMax || 50,
           fanLevel: (m.fanLevel || 0) as 0 | 1 | 2 | 3,
-          heaterLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
-          humidifierLevel: 0 as 0 | 1 | 2 | 3 | 4 | 5,
-          mode: 'automatic' as const,
+          heaterLevel: 0 as 0 | 1 | 2 | 3,
+          humidifierLevel: 0 as 0 | 1,
+          mode: (m.mode || 'manual') as 'automatic' | 'manual',
+          currentFruit: m.currentFruit,
         }));
         setMachines(convertedMachines);
 
@@ -389,7 +399,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Fetch schedules
       if (schedulesRes.ok) {
         const backendSchedules = await schedulesRes.json();
-        setSchedules(backendSchedules);
+        // Map backend schedules to include required frontend fields
+        const mappedSchedules = backendSchedules.map((s: any) => ({
+          ...s,
+          targetTempMin: s.targetTempMin || 50,
+          targetTempMax: s.targetTempMax || 60,
+          targetHumidityMin: s.targetHumidityMin || 40,
+          targetHumidityMax: s.targetHumidityMax || 50,
+          steps: s.steps || [
+            {
+              id: 'step1',
+              order: 1,
+              duration: s.duration || 120,
+              tempMin: s.targetTempMin || 50,
+              tempMax: s.targetTempMax || 60,
+              humidityMin: s.targetHumidityMin || 40,
+              humidityMax: s.targetHumidityMax || 50,
+              fanLevel: 2,
+              doorOpen: false,
+            }
+          ]
+        }));
+        setSchedules(mappedSchedules);
       }
     } catch (error) {
       console.error('Error fetching data from API:', error);
@@ -409,7 +440,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Connect to WebSocket for real-time updates
   const connectWebSocket = () => {
     try {
-      const ws = new WebSocket('ws://localhost:3001');
+      const ws = new WebSocket('ws://localhost:8000');
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -423,19 +454,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const telemetry = message.data;
             const machineId = telemetry.zone_id ? telemetry.zone_id.toString() : '1';
 
-            // Update machine data with latest telemetry
+            // Update machine by zone_id (from sensor)
+            // Also update liveDataMachineId machine if different
             setMachines(prevMachines =>
-              prevMachines.map(machine =>
-                machine.id === machineId
-                  ? {
+              prevMachines.map(machine => {
+                const isZoneMachine = machine.id === machineId;
+                const isLiveMachine =
+                  liveDataMachineIdRef.current !== null &&
+                  liveDataMachineIdRef.current !== machineId &&
+                  machine.id === liveDataMachineIdRef.current;
+
+                if (isZoneMachine || isLiveMachine) {
+                  return {
                     ...machine,
-                    currentTemp: telemetry.temperature || machine.currentTemp,
-                    currentHumidity: telemetry.humidity || machine.currentHumidity,
-                    isDoorOpen: telemetry.isDoorOpen || false,
-                    fanLevel: (telemetry.fan_level || machine.fanLevel) as 0 | 1 | 2 | 3,
-                  }
-                  : machine
-              )
+                    currentTemp: telemetry.temperature ?? machine.currentTemp,
+                    currentHumidity: telemetry.humidity ?? machine.currentHumidity,
+                    isDoorOpen: telemetry.isDoorOpen ?? false,
+                    fanLevel: (telemetry.fan_level ?? machine.fanLevel) as 0 | 1 | 2 | 3,
+                  };
+                }
+                return machine;
+              })
             );
 
             // Add to logs
@@ -838,14 +877,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           value: updates.fanLevel,
           zone_id: machineId
         };
+      } else if (updates.heaterLevel !== undefined) {
+        details = updates.heaterLevel > 0 ? `Bật sưởi ấm mức ${updates.heaterLevel}` : 'Tắt sưởi ấm';
+        deviceCommand = {
+          device: 'heater',
+          value: updates.heaterLevel,
+          zone_id: machineId
+        };
+      } else if (updates.humidifierLevel !== undefined) {
+        details = updates.humidifierLevel === 1 ? 'Bật làm ẩm' : 'Tắt làm ẩm';
+        deviceCommand = {
+          device: 'humidifier',
+          value: updates.humidifierLevel,
+          zone_id: machineId
+        };
       } else if (updates.mode !== undefined || updates.scheduleId !== undefined) {
         const newMode = updates.mode || machine.mode;
         const newScheduleId = updates.scheduleId || machine.scheduleId;
 
         if (newMode === 'automatic' && newScheduleId) {
           const schedule = schedules.find(s => s.id === newScheduleId);
+          console.log(`[Debug] newScheduleId=${newScheduleId}, schedule found=`, schedule);
+          console.log(`[Debug] all schedule IDs=`, schedules.map(s => s.id));
           if (schedule) {
-            // Automatically apply schedule thresholds
             updates.targetTempMin = schedule.targetTempMin;
             updates.targetTempMax = schedule.targetTempMax;
             updates.targetHumidityMin = schedule.targetHumidityMin;
@@ -853,25 +907,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             updates.currentFruit = schedule.fruitType;
             details = `Chuyển sang tự động - Lịch: ${schedule.name}`;
 
-            // Gửi tín hiệu loại trái cây sang Adafruit (loại tái đó = 1)
             const fruitMapping: Record<string, string> = {
               'Xoài': 'xoai',
               'Chuối': 'chuoi',
               'Thanh long': 'thanh-long',
-              'Dứa': 'dua',
+              'Dứa': 'pineapple',
               'Nhãn': 'nhan'
             };
             const feedName = fruitMapping[schedule.fruitType];
-            if (feedName) {
-              deviceCommand = {
-                device: feedName,
-                value: 1,
-                zone_id: machineId
-              };
-            }
+            console.log(`[Debug] fruitType="${schedule.fruitType}", feedName="${feedName}"`);
+
+            // Gửi tuần tự: fruit=1 → đợi 500ms → auto=1
+            ;(async () => {
+              if (feedName) {
+                await sendControlCommand({ device: feedName, value: 1, zone_id: machineId });
+                console.log(`[Auto] Gửi ${feedName}=1`);
+                await new Promise(r => setTimeout(r, 500));
+              } else {
+                console.warn(`[Auto] Không tìm thấy feedName cho fruitType="${schedule.fruitType}"`);
+              }
+              await sendControlCommand({ device: 'auto', value: 1, zone_id: machineId });
+              console.log(`[Auto] Gửi auto=1`);
+            })();
           } else {
-            details = `Chuyển sang chế độ ${newMode === 'automatic' ? 'tự động' : 'thủ công'}`;
+            details = `Chuyển sang chế độ tự động`;
+            console.warn(`[Auto] Schedule ${newScheduleId} không tìm thấy! Chỉ gửi auto=1`);
+            sendControlCommand({ device: 'auto', value: 1, zone_id: machineId });
           }
+        } else if (newMode === 'manual') {
+          details = `Chuyển sang chế độ thủ công`;
+          sendControlCommand({ device: 'auto', value: 0, zone_id: machineId });
+          console.log(`[Auto] Gửi auto=0`);
         } else {
           details = `Chuyển sang chế độ ${newMode === 'manual' ? 'thủ công' : 'tự động'}`;
         }
@@ -1028,6 +1094,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getStatsForMachine,
         getStatsForBuilding,
         logActivity,
+        liveDataMachineId,
+        setLiveDataMachineId,
       }}
     >
       {children}

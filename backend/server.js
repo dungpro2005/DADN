@@ -3,7 +3,7 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios'); // Dùng để gọi ngược lại Gateway
-const { sql, poolPromise } = require('./db');
+const { dbPromise } = require('./db');
 
 require('dotenv').config();
 
@@ -20,10 +20,8 @@ app.use(express.json());
 let telemetryData = [];
 let latestData = {};
 
-// Dữ liệu người dùng, máy sấy, tòa nhà và lịch trình sẽ được lấy từ Database
-
 // --- 1. Nhận dữ liệu từ Gateway ---
-app.post('/api/telemetry', (req, res) => {
+app.post('/api/telemetry', async (req, res) => {
   try {
     const { zone_id, zone_name, temperature, humidity, fan_level, door_status, timestamp } = req.body;
 
@@ -43,73 +41,62 @@ app.post('/api/telemetry', (req, res) => {
       received_at: new Date().toISOString()
     };
 
-    // Cập nhật mảng lịch sử (Giới hạn 1000 bản ghi gần nhất để tránh tràn RAM)
-    telemetryData.push(telemetryEntry);
-    if (telemetryData.length > 1000) telemetryData.shift();
-
     // Cập nhật trạng thái mới nhất
     latestData[zone_id] = telemetryEntry;
 
-    // Cập nhật trực tiếp vào database (Nếu cần thiết kế bảng riêng cho trạng thái máy sấy)
-    const updateMachineInDB = async () => {
-      try {
-        const pool = await poolPromise;
-        await pool.request()
-          .input('id', sql.NVarChar, zone_id.toString())
-          .input('temp', sql.Float, telemetryEntry.temperature)
-          .input('humi', sql.Float, telemetryEntry.humidity)
-          .input('fan', sql.Int, telemetryEntry.fan_level)
-          .input('door', sql.Bit, telemetryEntry.isDoorOpen ? 1 : 0)
-          .input('lastUpdate', sql.DateTime2, new Date())
-          .query(`
-            UPDATE Machines 
-            SET currentTemp = @temp, currentHumidity = @humi, fanLevel = @fan, isDoorOpen = @door, lastUpdate = @lastUpdate
-            WHERE machineId = @id
-          `);
-      } catch (err) {
-        console.error('Lỗi cập nhật máy sấy vào DB:', err);
-      }
-    };
-    updateMachineInDB();
+    // Cập nhật trực tiếp vào database
+    const pool = await dbPromise;
+    await pool.query(`
+      UPDATE Machines 
+      SET currentTemp = ?, currentHumidity = ?, fanLevel = ?, isDoorOpen = ?, lastUpdate = ?
+      WHERE machineId = ?
+    `, [
+      telemetryEntry.temperature, 
+      telemetryEntry.humidity, 
+      telemetryEntry.fan_level, 
+      telemetryEntry.isDoorOpen ? 1 : 0, 
+      new Date(), 
+      zone_id.toString()
+    ]);
 
     // Gửi dữ liệu thời gian thực qua WebSocket
     broadcast({ type: 'telemetry_update', data: telemetryEntry });
 
-    console.log(`[Gateway] Nhận dữ liệu từ ${zone_name} (ID: ${zone_id}): \n  Temperature: ${telemetryEntry.temperature}\n  Humidity: ${telemetryEntry.humidity}\n  Fan Level: ${telemetryEntry.fan_level}\n  Door Status: ${telemetryEntry.isDoorOpen ? 'Open' : 'Closed'}`);
     res.status(200).json({ success: true });
   } catch (error) {
-    console.error('Lỗi xử lý telemetry:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Lỗi nhận telemetry:', error);
+    res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
-// --- 2. Gửi lệnh điều khiển xuống Gateway ---
-// Web UI sẽ gọi API này: POST /api/control { "device": "fan", "value": "3", "zone_id": 1 }
+// --- 2. Điều khiển thiết bị ---
 app.post('/api/control', async (req, res) => {
   const { device, value, zone_id } = req.body;
+  
+  console.log(`[Control] Device: ${device}, Value: ${value}, Zone: ${zone_id}`);
 
   try {
-    // Gọi sang Flask Gateway
-    const response = await axios.post(GATEWAY_URL, { device, value });
-
-    console.log(`[Control] Gửi lệnh ${device}:${value} tới Gateway thành công`);
-    res.json({ success: true, gateway_response: response.data });
+    // Gọi sang Gateway để gửi lệnh xuống phần cứng
+    const response = await axios.post(GATEWAY_URL, { device, value, zone_id });
+    console.log(`[Control] ✓ Gateway xác nhận: ${device}=${value}`);
+    res.json(response.data);
   } catch (error) {
-    console.error('Không thể kết nối tới Gateway Python:', error.message);
-    res.status(502).json({ error: 'Gateway không phản hồi' });
+    console.error(`[Control] ✗ Lỗi gửi ${device}=${value} tới Gateway:`, error.message);
+    // Vẫn trả về thành công để FE không bị broken, nhưng log lỗi
+    res.status(200).json({ status: 'queued', warning: 'Gateway không phản hồi, lệnh có thể chưa đến phần cứng' });
   }
 });
 
 // --- 3. Các API lấy dữ liệu cho Frontend ---
 app.get('/api/buildings', async (req, res) => {
   try {
-    const pool = await poolPromise;
-    const result = await pool.request().query(`
+    const pool = await dbPromise;
+    const [buildings] = await pool.query(`
       SELECT b.buildingId as id, b.buildingName as name, b.location,
       (SELECT COUNT(*) FROM Machines m WHERE m.buildingId = b.buildingId) as machineCount
       FROM Buildings b
     `);
-    res.json(result.recordset);
+    res.json(buildings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -118,12 +105,11 @@ app.get('/api/buildings', async (req, res) => {
 app.post('/api/buildings', async (req, res) => {
   try {
     const { id, name, location } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('name', sql.NVarChar, name)
-      .input('location', sql.NVarChar, location)
-      .query('INSERT INTO Buildings (buildingId, buildingName, location) VALUES (@id, @name, @location)');
+    const pool = await dbPromise;
+    await pool.query(
+      'INSERT INTO Buildings (buildingId, buildingName, location) VALUES (?, ?, ?)',
+      [id, name, location]
+    );
     res.status(201).json({ id, name, location });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -133,8 +119,8 @@ app.post('/api/buildings', async (req, res) => {
 app.delete('/api/buildings/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const pool = await poolPromise;
-    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Buildings WHERE buildingId = @id');
+    const pool = await dbPromise;
+    await pool.query('DELETE FROM Buildings WHERE buildingId = ?', [id]);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -143,9 +129,9 @@ app.delete('/api/buildings/:id', async (req, res) => {
 
 app.get('/api/machines', async (req, res) => {
   try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT machineId as id, machineName as name, buildingId, currentTemp, currentHumidity, fanLevel, isDoorOpen, lastUpdate, currentFruitType as currentFruit, mode, targetTempMin, targetTempMax, targetHumidityMin, targetHumidityMax FROM Machines');
-    res.json(result.recordset);
+    const pool = await dbPromise;
+    const [machines] = await pool.query('SELECT machineId as id, machineName as name, buildingId, currentTemp, currentHumidity, fanLevel, isDoorOpen, lastUpdate, currentFruitType as currentFruit, mode, targetTempMin, targetTempMax, targetHumidityMin, targetHumidityMax FROM Machines');
+    res.json(machines);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -154,12 +140,11 @@ app.get('/api/machines', async (req, res) => {
 app.post('/api/machines', async (req, res) => {
   try {
     const { id, name, buildingId } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('name', sql.NVarChar, name)
-      .input('buildingId', sql.NVarChar, buildingId)
-      .query('INSERT INTO Machines (machineId, machineName, buildingId, isOn, isDoorOpen, currentTemp, currentHumidity, fanLevel, mode) VALUES (@id, @name, @buildingId, 0, 0, 0, 0, 0, \'manual\')');
+    const pool = await dbPromise;
+    await pool.query(
+      'INSERT INTO Machines (machineId, machineName, buildingId, isOn, isDoorOpen, currentTemp, currentHumidity, fanLevel, mode) VALUES (?, ?, ?, 0, 0, 0, 0, 0, \'manual\')',
+      [id, name, buildingId]
+    );
     res.status(201).json(req.body);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -170,101 +155,92 @@ app.put('/api/machines/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const pool = await poolPromise;
+    const pool = await dbPromise;
+    
     let query = 'UPDATE Machines SET ';
-    const request = pool.request();
-    request.input('id', sql.NVarChar, id);
-
+    const params = [];
     const setClauses = [];
-    Object.keys(updates).forEach((key, index) => {
-      // Map frontend fields to backend DB fields if necessary
+    
+    Object.keys(updates).forEach((key) => {
       let dbKey = key;
       if (key === 'currentFruit') dbKey = 'currentFruitType';
       
-      request.input(`param${index}`, updates[key]);
-      setClauses.push(`${dbKey} = @param${index}`);
+      setClauses.push(`${dbKey} = ?`);
+      params.push(updates[key]);
     });
     
-    query += setClauses.join(', ') + ' WHERE machineId = @id';
-    await request.query(query);
+    query += setClauses.join(', ') + ' WHERE machineId = ?';
+    params.push(id);
+    
+    await pool.query(query, params);
+
+    // --- Gửi lệnh lên Adafruit IO khi thay đổi chế độ ---
+    if (updates.mode) {
+      // Bảng ánh xạ tên trái cây sang feed key trên Adafruit IO
+      const fruitFeedMap = {
+        'Chuối':      'chuoi',
+        'Dứa':        'pineapple',
+        'Xoài':       'xoai',
+        'Thanh long': 'thanh-long',
+        'Nhãn':       'nhan'
+      };
+
+      const sendToGateway = async (device, value) => {
+        try {
+          await axios.post(GATEWAY_URL, { device, value });
+        } catch (e) {
+          console.warn(`[Adafruit] Không thể gửi lệnh ${device}=${value}:`, e.message);
+        }
+      };
+
+      if (updates.mode === 'automatic') {
+        // Lấy loại trái cây của máy từ DB
+        const [rows] = await pool.query('SELECT currentFruitType FROM Machines WHERE machineId = ?', [id]);
+        const machine = rows[0];
+        const fruitFeed = fruitFeedMap[machine?.currentFruitType];
+
+        // Gửi tên trái cây lên Adafruit IO trước
+        if (fruitFeed) {
+          await sendToGateway(fruitFeed, 1);
+          console.log(`[Adafruit] Gửi ${fruitFeed}=1 lên Adafruit IO`);
+        }
+        // Sau đó bật chế độ auto
+        await sendToGateway('auto', 1);
+        console.log(`[Adafruit] Gửi auto=1 lên Adafruit IO`);
+
+      } else if (updates.mode === 'manual') {
+        // Tắt chế độ auto
+        await sendToGateway('auto', 0);
+        console.log(`[Adafruit] Gửi auto=0 lên Adafruit IO`);
+      }
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+
 app.delete('/api/machines/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const pool = await poolPromise;
-    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Machines WHERE machineId = @id');
+    const pool = await dbPromise;
+    await pool.query('DELETE FROM Machines WHERE machineId = ?', [id]);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.get('/api/telemetry/latest', (req, res) => res.json(latestData));
-app.get('/api/logs', (req, res) => {
-  // Trả về log định dạng đẹp để vẽ biểu đồ
-  const logs = telemetryData.map(e => ({
-    time: e.timestamp,
-    temp: e.temperature,
-    humi: e.humidity,
-    zone: e.zone_name
-  }));
-  res.json(logs);
-});
 
 // --- 4. Quản lý Người dùng & OTP ---
 app.get('/api/users', async (req, res) => {
   try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT username, role, firstName, lastName, email, phoneNumber FROM Users');
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Yêu cầu OTP
-app.post('/api/otp/request', async (req, res) => {
-  const { email } = req.body;
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().input('email', sql.NVarChar, email).query('SELECT * FROM Users WHERE email = @email');
-    if (result.recordset.length === 0) return res.status(404).json({ error: 'Không tìm thấy email người dùng' });
-
-    const response = await axios.post(`${OTP_SERVICE_URL}/generate`, { email });
-    res.json(response.data);
-  } catch (error) {
-    console.error('Lỗi gọi OTP Service:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Lỗi dịch vụ OTP', details: error.response?.data || error.message });
-  }
-});
-
-// Xác thực OTP
-app.post('/api/otp/verify', async (req, res) => {
-  const { email, otp } = req.body;
-  try {
-    const response = await axios.post(`${OTP_SERVICE_URL}/verify`, { email, otp });
-    res.json(response.data);
-  } catch (error) {
-    res.status(400).json(error.response?.data || { error: 'Xác thực thất bại' });
-  }
-});
-
-// Đổi mật khẩu (Sau khi đã xác thực OTP)
-app.post('/api/users/reset-password', async (req, res) => {
-  const { email, newPassword } = req.body;
-  try {
-    const pool = await poolPromise;
-    await pool.request()
-      .input('email', sql.NVarChar, email)
-      .input('password', sql.NVarChar, newPassword) // Trong thực tế nên hash password
-      .query('UPDATE Users SET passwordHash = @password WHERE email = @email');
-    
-    console.log(`[Reset] Reset password for ${email} to ${newPassword}`);
-    res.json({ success: true, message: 'Đặt lại mật khẩu thành công' });
+    const pool = await dbPromise;
+    const [users] = await pool.query("SELECT username, role, firstName, lastName, CONCAT(firstName, ' ', lastName) as name, email, phoneNumber FROM Users");
+    res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -273,17 +249,11 @@ app.post('/api/users/reset-password', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { username, role, firstName, lastName, email, phoneNumber, password } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, `USR-${Date.now()}`)
-      .input('username', sql.NVarChar, username)
-      .input('password', sql.NVarChar, password || 'Password123')
-      .input('firstName', sql.NVarChar, firstName)
-      .input('lastName', sql.NVarChar, lastName)
-      .input('email', sql.NVarChar, email)
-      .input('phone', sql.NVarChar, phoneNumber)
-      .input('role', sql.NVarChar, role)
-      .query('INSERT INTO Users (userId, username, passwordHash, firstName, lastName, email, phoneNumber, role) VALUES (@id, @username, @password, @firstName, @lastName, @email, @phone, @role)');
+    const pool = await dbPromise;
+    await pool.query(
+      'INSERT INTO Users (userId, username, passwordHash, firstName, lastName, email, phoneNumber, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [`USR-${Date.now()}`, username, password || 'Password123', firstName, lastName, email, phoneNumber, role]
+    );
     res.status(201).json(req.body);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -294,24 +264,24 @@ app.put('/api/users/:username', async (req, res) => {
   try {
     const { username } = req.params;
     const updates = req.body;
-    const pool = await poolPromise;
+    const pool = await dbPromise;
+    
     let query = 'UPDATE Users SET ';
-    const request = pool.request();
-    request.input('username', sql.NVarChar, username);
-
+    const params = [];
     const setClauses = [];
-    Object.keys(updates).forEach((key, index) => {
-      if (key === 'password') {
-         request.input(`param${index}`, updates[key]);
-         setClauses.push(`passwordHash = @param${index}`);
-      } else {
-         request.input(`param${index}`, updates[key]);
-         setClauses.push(`${key} = @param${index}`);
-      }
+    
+    Object.keys(updates).forEach((key) => {
+      let dbKey = key;
+      if (key === 'password') dbKey = 'passwordHash';
+      
+      setClauses.push(`${dbKey} = ?`);
+      params.push(updates[key]);
     });
     
-    query += setClauses.join(', ') + ' WHERE username = @username';
-    await request.query(query);
+    query += setClauses.join(', ') + ' WHERE username = ?';
+    params.push(username);
+    
+    await pool.query(query, params);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -321,8 +291,8 @@ app.put('/api/users/:username', async (req, res) => {
 app.delete('/api/users/:username', async (req, res) => {
   try {
     const { username } = req.params;
-    const pool = await poolPromise;
-    await pool.request().input('username', sql.NVarChar, username).query('DELETE FROM Users WHERE username = @username');
+    const pool = await dbPromise;
+    await pool.query('DELETE FROM Users WHERE username = ?', [username]);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -332,10 +302,9 @@ app.delete('/api/users/:username', async (req, res) => {
 // --- 5. Quản lý Lịch trình ---
 app.get('/api/schedules', async (req, res) => {
   try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT scheduleId as id, scheduleName as name, fruitTypeId as fruitType, durationMinutes as duration FROM Schedules');
-    // Cần lấy thêm các bước (steps) nếu frontend yêu cầu
-    res.json(result.recordset);
+    const pool = await dbPromise;
+    const [schedules] = await pool.query('SELECT scheduleId as id, scheduleName as name, fruitTypeId as fruitType, durationMinutes as duration FROM Schedules');
+    res.json(schedules);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -344,13 +313,11 @@ app.get('/api/schedules', async (req, res) => {
 app.post('/api/schedules', async (req, res) => {
   try {
     const { id, name, fruitType, duration } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('name', sql.NVarChar, name)
-      .input('fruitType', sql.NVarChar, fruitType)
-      .input('duration', sql.Int, duration)
-      .query('INSERT INTO Schedules (scheduleId, scheduleName, fruitTypeId, durationMinutes) VALUES (@id, @name, @fruitType, @duration)');
+    const pool = await dbPromise;
+    await pool.query(
+      'INSERT INTO Schedules (scheduleId, scheduleName, fruitTypeId, durationMinutes) VALUES (?, ?, ?, ?)',
+      [id, name, fruitType, duration]
+    );
     res.status(201).json(req.body);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -358,7 +325,11 @@ app.post('/api/schedules', async (req, res) => {
 });
 
 // --- 4. WebSocket Server ---
-const wss = new WebSocket.Server({ port: 3001 });
+const server = app.listen(PORT, () => {
+  console.log(`Backend chạy tại http://localhost:${PORT}`);
+});
+
+const wss = new WebSocket.Server({ server });
 
 function broadcast(data) {
   wss.clients.forEach(client => {
@@ -369,11 +340,10 @@ function broadcast(data) {
 }
 
 wss.on('connection', (ws) => {
-  console.log('🌐 Client Web đã kết nối WebSocket');
-  ws.send(JSON.stringify({ type: 'initial_data', data: latestData }));
-});
+  console.log('Client connected to WebSocket');
+  
+  // Gửi trạng thái kết nối hiện tại cho client mới
+  ws.send(JSON.stringify({ type: 'connection_status', connected: true }));
 
-app.listen(PORT, () => {
-  console.log(`Backend chạy tại http://localhost:${PORT}`);
-  console.log(`WebSocket chạy tại ws://localhost:3001`);
+  ws.on('close', () => console.log('Client disconnected'));
 });

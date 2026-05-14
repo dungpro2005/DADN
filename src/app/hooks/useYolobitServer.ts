@@ -15,7 +15,7 @@ interface YolobitState {
   sensorData: SensorData | null;
 }
 
-export const useYolobitServer = (serverUrl: string = 'ws://localhost:3001') => {
+export const useYolobitServer = (serverUrl: string = 'ws://localhost:8000') => {
   const [state, setState] = useState<YolobitState>({
     isConnected: false,
     sensorData: null,

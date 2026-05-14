@@ -27,6 +27,8 @@ export default function MachinesPage() {
     addMachine,
     removeMachine,
     updateMachine,
+    liveDataMachineId,
+    setLiveDataMachineId,
   } = useApp();
 
   const yolobit = useYolobitServer();
@@ -68,8 +70,8 @@ export default function MachinesPage() {
         currentTemp: yolobit.sensorData.temp,
         currentHumidity: yolobit.sensorData.humidity,
         fanLevel: yolobit.sensorData.fan as 0 | 1 | 2 | 3,
-        heaterLevel: (yolobit.sensorData.heater as 0 | 1 | 2 | 3 | 4 | 5) || 0,
-        humidifierLevel: (yolobit.sensorData.humidifier as 0 | 1 | 2 | 3 | 4 | 5) || 0,
+        heaterLevel: (yolobit.sensorData.heater as 0 | 1 | 2 | 3) || 0,
+        humidifierLevel: (yolobit.sensorData.humidifier as 0 | 1) || 0,
       });
     }
   }, [yolobit.sensorData, selectedMachine, updateMachine]);
@@ -132,7 +134,7 @@ export default function MachinesPage() {
     toast.success(`Đã đặt quạt mức ${level}`);
   };
 
-  const setHeaterLevel = (machineId: string, level: 0 | 1 | 2 | 3 | 4 | 5) => {
+  const setHeaterLevel = (machineId: string, level: 0 | 1 | 2 | 3) => {
     updateMachine(machineId, { heaterLevel: level });
     if (yolobit.isConnected) {
       yolobit.sendCommand({ command: 'set_heater', level });
@@ -140,27 +142,30 @@ export default function MachinesPage() {
     toast.success(`Đã đặt sưởi ấm mức ${level}`);
   };
 
-  const setHumidifierLevel = (machineId: string, level: 0 | 1 | 2 | 3 | 4 | 5) => {
+  const setHumidifierLevel = (machineId: string, level: 0 | 1) => {
     updateMachine(machineId, { humidifierLevel: level });
     if (yolobit.isConnected) {
       yolobit.sendCommand({ command: 'set_humidifier', level });
     }
-    toast.success(`Đã đặt làm ẩm mức ${level}`);
+    toast.success(level === 1 ? 'Đã bật làm ẩm' : 'Đã tắt làm ẩm');
   };
 
   const handleConnectYolobit = async (machineId: string) => {
     try {
+      setLiveDataMachineId(machineId);
       await yolobit.connect();
-      toast.success('Đã kết nối với Yolobit');
+      toast.success('Đã kết nối - dữ liệu sẽ hiển thị tại máy này');
     } catch (error) {
-      toast.error('Không thể kết nối với Yolobit: ' + (error as Error).message);
+      setLiveDataMachineId(null);
+      toast.error('Không thể kết nối: ' + (error as Error).message);
     }
   };
 
   const handleDisconnectYolobit = async () => {
     try {
+      setLiveDataMachineId(null);
       await yolobit.disconnect();
-      toast.success('Đã ngắt kết nối Yolobit');
+      toast.success('Đã ngắt kết nối');
     } catch (error) {
       toast.error('Lỗi khi ngắt kết nối: ' + (error as Error).message);
     }
@@ -292,22 +297,26 @@ export default function MachinesPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() =>
-                        yolobit.isConnected
-                          ? handleDisconnectYolobit()
-                          : handleConnectYolobit(machine.id)
-                      }
-                      className={`p-2 rounded-lg transition-colors ${yolobit.isConnected
+                      onClick={() => {
+                        const isThisMachineConnected = liveDataMachineId === machine.id;
+                        if (isThisMachineConnected) {
+                          handleDisconnectYolobit();
+                        } else {
+                          handleConnectYolobit(machine.id);
+                        }
+                      }}
+                      className={`p-2 rounded-lg transition-colors ${
+                        liveDataMachineId === machine.id
                           ? 'bg-green-100 text-green-600 hover:bg-green-200'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
+                      }`}
                       title={
-                        yolobit.isConnected
-                          ? 'Ngắt kết nối Yolobit'
-                          : 'Kết nối với Yolobit'
+                        liveDataMachineId === machine.id
+                          ? 'Ngắt kết nối (đang nhận dữ liệu thực)'
+                          : 'Kết nối để nhận dữ liệu thực tại máy này'
                       }
                     >
-                      {yolobit.isConnected ? (
+                      {liveDataMachineId === machine.id ? (
                         <Wifi className="w-5 h-5" />
                       ) : (
                         <WifiOff className="w-5 h-5" />
@@ -406,7 +415,7 @@ export default function MachinesPage() {
                       <p className="text-xl font-bold text-gray-900">
                         Mức {machine.heaterLevel}
                       </p>
-                      <p className="text-xs text-gray-500">(0-5)</p>
+                      <p className="text-xs text-gray-500">(0-3)</p>
                       {yolobit.isConnected && (
                         <p className="text-xs text-green-600">Điều khiển</p>
                       )}
@@ -417,9 +426,9 @@ export default function MachinesPage() {
                     <div>
                       <p className="text-sm text-gray-600">Làm ẩm</p>
                       <p className="text-xl font-bold text-gray-900">
-                        Mức {machine.humidifierLevel}
+                        {machine.humidifierLevel === 1 ? 'Bật' : 'Tắt'}
                       </p>
-                      <p className="text-xs text-gray-500">(0-5)</p>
+                      <p className="text-xs text-gray-500">(Tắt/Bật)</p>
                       {yolobit.isConnected && (
                         <p className="text-xs text-green-600">Điều khiển</p>
                       )}
@@ -665,9 +674,9 @@ export default function MachinesPage() {
                           <div className="flex-1">
                             <Slider
                               value={[machine.heaterLevel]}
-                              onValueChange={(value) => setHeaterLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
+                              onValueChange={(value) => setHeaterLevel(machine.id, value[0] as 0 | 1 | 2 | 3)}
                               min={0}
-                              max={5}
+                              max={3}
                               step={1}
                               className="w-full"
                             />
@@ -685,19 +694,16 @@ export default function MachinesPage() {
                         </label>
                         <div className="flex items-center gap-4">
                           <Droplet className="w-5 h-5 text-blue-500" />
-                          <div className="flex-1">
-                            <Slider
-                              value={[machine.humidifierLevel]}
-                              onValueChange={(value) => setHumidifierLevel(machine.id, value[0] as 0 | 1 | 2 | 3 | 4 | 5)}
-                              min={0}
-                              max={5}
-                              step={1}
-                              className="w-full"
-                            />
-                          </div>
-                          <span className="text-sm font-semibold text-gray-900 min-w-[3rem]">
-                            Mức {machine.humidifierLevel}
-                          </span>
+                          <button
+                            onClick={() => setHumidifierLevel(machine.id, machine.humidifierLevel === 1 ? 0 : 1)}
+                            className={`flex-1 px-4 py-3 rounded-lg border-2 font-semibold transition-colors ${
+                              machine.humidifierLevel === 1
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                            }`}
+                          >
+                            {machine.humidifierLevel === 1 ? '💧 Đang bật' : '○ Đã tắt'}
+                          </button>
                         </div>
                       </div>
                     </>
